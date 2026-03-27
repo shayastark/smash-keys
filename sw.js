@@ -17,8 +17,25 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
+// Network-first for HTML (always get latest), cache-first for static assets
 self.addEventListener('fetch', (e) => {
-  e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request))
-  );
+  const url = new URL(e.request.url);
+
+  if (e.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+    // Network first — ensures users always get the latest version
+    e.respondWith(
+      fetch(e.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+          return response;
+        })
+        .catch(() => caches.match(e.request))
+    );
+  } else {
+    // Cache first for static assets (icons, manifest)
+    e.respondWith(
+      caches.match(e.request).then((cached) => cached || fetch(e.request))
+    );
+  }
 });
