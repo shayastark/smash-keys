@@ -749,10 +749,20 @@
 
   function handleTouchStart(e) {
     if (!active) return;
+
+    // Let touches on exit overlay buttons pass through to their handlers
+    const target = e.target;
+    if (target.id === 'resume-btn' || target.id === 'quit-btn') return;
+
     e.preventDefault();
 
-    // Three-finger tap to exit (mobile equivalent of double-ESC)
+    // Three-finger tap: open exit overlay, or resume if already showing
     if (e.touches.length >= 3) {
+      if (exitShowing) {
+        hideExit();
+        lastThreeFingerTap = 0;
+        return;
+      }
       const now = Date.now();
       if (now - lastThreeFingerTap < 1000) {
         showExit();
@@ -894,15 +904,28 @@
     }
   }
 
-  document.getElementById('resume-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    hideExit();
-  });
+  // Both click and touchend so buttons work on desktop and mobile
+  const resumeBtn = document.getElementById('resume-btn');
+  const quitBtn = document.getElementById('quit-btn');
 
-  document.getElementById('quit-btn').addEventListener('click', (e) => {
+  function handleResume(e) {
     e.stopPropagation();
+    e.preventDefault();
+    hideExit();
+    // Re-enter fullscreen on mobile
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+
+  function handleQuit(e) {
+    e.stopPropagation();
+    e.preventDefault();
     quitApp();
-  });
+  }
+
+  resumeBtn.addEventListener('click', handleResume);
+  resumeBtn.addEventListener('touchend', handleResume);
+  quitBtn.addEventListener('click', handleQuit);
+  quitBtn.addEventListener('touchend', handleQuit);
 
   // ─── Wake Lock (keep screen on) ───────────────────────
   let wakeLock = null;
