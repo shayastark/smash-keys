@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smash Keys</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    overflow: hidden;
+    background: #111;
+    font-family: 'Comic Sans MS', 'Chalkboard SE', 'Arial Rounded MT Bold', sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: none;
+  }
+
+  #start-screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    z-index: 1000;
+    cursor: default;
+  }
+
+  #start-screen h1 {
+    font-size: clamp(3rem, 10vw, 8rem);
+    color: #fff;
+    text-shadow: 4px 4px 0 #ff6b6b, 8px 8px 0 #feca57, 12px 12px 0 #48dbfb;
+    margin-bottom: 0.5em;
+    animation: bounce 1s ease infinite alternate;
+  }
+
+  #start-screen p {
+    font-size: clamp(1rem, 3vw, 2rem);
+    color: rgba(255,255,255,0.9);
+    margin-bottom: 2em;
+  }
+
+  #start-btn {
+    font-family: inherit;
+    font-size: clamp(1.2rem, 3vw, 2rem);
+    padding: 0.6em 2em;
+    border: none;
+    border-radius: 50px;
+    background: #feca57;
+    color: #333;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 6px 0 #f0b429, 0 8px 20px rgba(0,0,0,0.3);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+
+  #start-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 0 #f0b429, 0 10px 25px rgba(0,0,0,0.3);
+  }
+
+  #start-btn:active {
+    transform: translateY(4px);
+    box-shadow: 0 2px 0 #f0b429, 0 4px 10px rgba(0,0,0,0.3);
+  }
+
+  @keyframes bounce {
+    from { transform: translateY(0); }
+    to { transform: translateY(-15px); }
+  }
+
+  #canvas {
+    position: fixed;
+    inset: 0;
+    display: block;
+  }
+
+  #exit-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.85);
+    z-index: 2000;
+    cursor: default;
+  }
+
+  #exit-overlay.visible {
+    display: flex;
+  }
+
+  #exit-overlay h2 {
+    font-size: clamp(2rem, 6vw, 4rem);
+    color: #fff;
+    margin-bottom: 0.5em;
+  }
+
+  #exit-overlay p {
+    font-size: clamp(1rem, 2.5vw, 1.5rem);
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 2em;
+  }
+
+  .exit-buttons {
+    display: flex;
+    gap: 1em;
+  }
+
+  .exit-buttons button {
+    font-family: inherit;
+    font-size: clamp(1rem, 2.5vw, 1.5rem);
+    padding: 0.5em 1.5em;
+    border: none;
+    border-radius: 50px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+
+  .exit-buttons button:hover { transform: scale(1.05); }
+
+  #resume-btn {
+    background: #48dbfb;
+    color: #333;
+  }
+
+  #quit-btn {
+    background: #ff6b6b;
+    color: #fff;
+  }
+
+  #esc-hint {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    color: rgba(255,255,255,0.15);
+    font-size: 0.8rem;
+    z-index: 500;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="start-screen">
+  <h1>Smash Keys!</h1>
+  <p>A keyboard playground for tiny hands</p>
+  <button id="start-btn">Start Smashing!</button>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<div id="exit-overlay">
+  <h2>Leaving already?</h2>
+  <p>Press ESC again or click Quit to exit</p>
+  <div class="exit-buttons">
+    <button id="resume-btn">Keep Smashing!</button>
+    <button id="quit-btn">Quit</button>
+  </div>
+</div>
+
+<div id="esc-hint">Press ESC twice to exit</div>
+
+<script>
+(() => {
+  // ─── State ──────────────────────────────────────────────
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  let W, H;
+  let active = false;
+  let lastEscTime = 0;
+  let exitShowing = false;
+
+  const entities = [];   // all animated objects
+  let bgHue = 220;
+  let bgTargetHue = 220;
+
+  // ─── Audio ──────────────────────────────────────────────
+  let audioCtx = null;
+
+  function initAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }
+
+  // Map keys to pentatonic scale notes for pleasant sounds
+  const NOTE_FREQS = [
+    261.63, 293.66, 329.63, 392.00, 440.00,
+    523.25, 587.33, 659.25, 783.99, 880.00,
+    1046.50, 1174.66, 1318.51, 1567.98, 1760.00
+  ];
+
+  function playNote(key) {
+    if (!audioCtx) return;
+    const code = key.charCodeAt(0) || 0;
+    const freq = NOTE_FREQS[code % NOTE_FREQS.length];
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const types = ['sine', 'triangle', 'square'];
+    osc.type = types[code % types.length];
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.4);
+  }
+
+  // ─── Colors ─────────────────────────────────────────────
+  const PALETTE = [
+    '#ff6b6b', '#feca57', '#48dbfb', '#ff9ff3', '#54a0ff',
+    '#5f27cd', '#01a3a4', '#f368e0', '#ff9f43', '#10ac84',
+    '#ee5a24', '#0abde3', '#c8d6e5', '#ffd32a', '#ff3838',
+    '#3ae374', '#17c0eb', '#7158e2', '#fd7272', '#34e7e4'
+  ];
+
+  function randColor() {
+    return PALETTE[Math.floor(Math.random() * PALETTE.length)];
+  }
+
+  function randBetween(a, b) {
+    return a + Math.random() * (b - a);
+  }
+
+  // ─── Resize ─────────────────────────────────────────────
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ─── Entity types ───────────────────────────────────────
+
+  // Floating letter
+  function spawnLetter(key, x, y) {
+    const size = randBetween(80, 200);
+    const color = randColor();
+    const vx = randBetween(-2, 2);
+    const vy = randBetween(-3, -1);
+    const rotation = randBetween(-0.3, 0.3);
+    let rot = randBetween(0, Math.PI * 2);
+    let life = 1;
+    const decay = randBetween(0.008, 0.015);
+    const display = key.length === 1 ? key.toUpperCase() : '?';
+
+    entities.push({
+      update() {
+        x += vx;
+        y += vy;
+        rot += rotation;
+        life -= decay;
+        return life > 0;
+      },
+      draw() {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rot);
+        ctx.globalAlpha = life;
+        ctx.font = `bold ${size}px 'Comic Sans MS', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // outline
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.06;
+        ctx.strokeText(display, 0, 0);
+        // fill
+        ctx.fillStyle = color;
+        ctx.fillText(display, 0, 0);
+        ctx.restore();
+      }
+    });
+  }
+
+  // Particle burst
+  function spawnParticles(x, y, count) {
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count + randBetween(-0.2, 0.2);
+      const speed = randBetween(3, 12);
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
+      const radius = randBetween(4, 12);
+      const color = randColor();
+      let life = 1;
+      const decay = randBetween(0.015, 0.03);
+      let px = x, py = y;
+
+      entities.push({
+        update() {
+          px += vx;
+          py += vy * 0.98 + 0.3; // slight gravity
+          life -= decay;
+          return life > 0;
+        },
+        draw() {
+          ctx.save();
+          ctx.globalAlpha = life;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(px, py, radius * life, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      });
+    }
+  }
+
+  // Star shape
+  function spawnStar(x, y) {
+    const size = randBetween(30, 80);
+    const color = randColor();
+    const vx = randBetween(-3, 3);
+    const vy = randBetween(-4, -1);
+    const spin = randBetween(-0.1, 0.1);
+    let rot = 0;
+    let life = 1;
+    const decay = randBetween(0.006, 0.012);
+    const points = Math.floor(randBetween(4, 8));
+
+    entities.push({
+      update() {
+        x += vx;
+        y += vy + 0.5;
+        rot += spin;
+        life -= decay;
+        return life > 0;
+      },
+      draw() {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rot);
+        ctx.globalAlpha = life;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        for (let i = 0; i < points * 2; i++) {
+          const r = i % 2 === 0 ? size : size * 0.4;
+          const a = (Math.PI * i) / points - Math.PI / 2;
+          if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+          else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    });
+  }
+
+  // Expanding ring
+  function spawnRing(x, y) {
+    const color = randColor();
+    let radius = 10;
+    const expandRate = randBetween(4, 8);
+    let life = 1;
+    const decay = 0.02;
+    const lineWidth = randBetween(3, 8);
+
+    entities.push({
+      update() {
+        radius += expandRate;
+        life -= decay;
+        return life > 0;
+      },
+      draw() {
+        ctx.save();
+        ctx.globalAlpha = life;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth * life;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    });
+  }
+
+  // Bouncing shape
+  function spawnBouncingShape(x, y) {
+    const color = randColor();
+    const size = randBetween(20, 50);
+    let vx = randBetween(-6, 6);
+    let vy = randBetween(-8, -2);
+    const shape = Math.floor(Math.random() * 3); // 0=circle, 1=square, 2=triangle
+    let life = 1;
+    const decay = 0.004;
+    let rot = 0;
+    const spin = randBetween(-0.05, 0.05);
+
+    entities.push({
+      update() {
+        vy += 0.2; // gravity
+        x += vx;
+        y += vy;
+        rot += spin;
+
+        // bounce off walls
+        if (x < size) { x = size; vx *= -0.8; }
+        if (x > W - size) { x = W - size; vx *= -0.8; }
+        if (y > H - size) { y = H - size; vy *= -0.8; }
+        if (y < size) { y = size; vy *= -0.8; }
+
+        life -= decay;
+        return life > 0;
+      },
+      draw() {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rot);
+        ctx.globalAlpha = life;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        if (shape === 0) {
+          ctx.arc(0, 0, size, 0, Math.PI * 2);
+        } else if (shape === 1) {
+          ctx.rect(-size, -size, size * 2, size * 2);
+        } else {
+          ctx.moveTo(0, -size);
+          ctx.lineTo(size, size);
+          ctx.lineTo(-size, size);
+          ctx.closePath();
+        }
+        ctx.fill();
+        ctx.restore();
+      }
+    });
+  }
+
+  // ─── Main keystroke handler ─────────────────────────────
+  function handleSmash(e) {
+    if (!active) return;
+
+    // Block ALL keys from reaching the browser/OS
+    e.preventDefault();
+    e.stopPropagation();
+
+    // ESC handling
+    if (e.key === 'Escape') {
+      const now = Date.now();
+      if (now - lastEscTime < 1000) {
+        showExit();
+        lastEscTime = 0;
+        return;
+      }
+      lastEscTime = now;
+      return;
+    }
+
+    lastEscTime = 0;
+
+    // Random position biased toward center
+    const x = randBetween(W * 0.1, W * 0.9);
+    const y = randBetween(H * 0.15, H * 0.85);
+
+    // Spawn effects
+    spawnLetter(e.key, x, y);
+    spawnParticles(x, y, Math.floor(randBetween(15, 35)));
+    spawnRing(x, y);
+
+    // Randomly spawn bonus shapes
+    if (Math.random() < 0.5) spawnStar(x, y);
+    if (Math.random() < 0.3) spawnBouncingShape(x, y);
+
+    // Shift background color
+    bgTargetHue = (bgTargetHue + randBetween(20, 60)) % 360;
+
+    // Play sound
+    playNote(e.key);
+  }
+
+  // Also handle mouse/touch for toddlers who tap the screen
+  function handlePointer(e) {
+    if (!active || exitShowing) return;
+    e.preventDefault();
+
+    const x = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : W / 2);
+    const y = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : H / 2);
+
+    spawnParticles(x, y, 25);
+    spawnRing(x, y);
+    if (Math.random() < 0.5) spawnStar(x, y);
+    spawnBouncingShape(x, y);
+    bgTargetHue = (bgTargetHue + 30) % 360;
+    playNote('a');
+  }
+
+  // ─── Exit overlay ──────────────────────────────────────
+  function showExit() {
+    exitShowing = true;
+    document.getElementById('exit-overlay').classList.add('visible');
+  }
+
+  function hideExit() {
+    exitShowing = false;
+    document.getElementById('exit-overlay').classList.remove('visible');
+  }
+
+  function quitApp() {
+    active = false;
+    hideExit();
+    entities.length = 0;
+
+    // Exit fullscreen
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+
+    document.getElementById('start-screen').style.display = 'flex';
+    document.body.style.cursor = 'default';
+  }
+
+  document.getElementById('resume-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideExit();
+  });
+
+  document.getElementById('quit-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    quitApp();
+  });
+
+  // ─── Start ──────────────────────────────────────────────
+  document.getElementById('start-btn').addEventListener('click', () => {
+    initAudio();
+    active = true;
+    document.getElementById('start-screen').style.display = 'none';
+    document.body.style.cursor = 'none';
+
+    // Request fullscreen
+    document.documentElement.requestFullscreen().catch(() => {});
+  });
+
+  // ─── Event listeners ───────────────────────────────────
+  document.addEventListener('keydown', handleSmash, true);
+  document.addEventListener('mousedown', handlePointer, true);
+  document.addEventListener('touchstart', handlePointer, { capture: true, passive: false });
+
+  // Block context menu
+  document.addEventListener('contextmenu', (e) => {
+    if (active) e.preventDefault();
+  }, true);
+
+  // Prevent tab from moving focus away
+  document.addEventListener('keyup', (e) => {
+    if (active) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+
+  // ─── Render loop ────────────────────────────────────────
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!active) return;
+
+    // Smooth background transition
+    bgHue += (bgTargetHue - bgHue) * 0.05;
+    const bgLight = 15;
+    ctx.fillStyle = `hsl(${bgHue}, 40%, ${bgLight}%)`;
+    ctx.fillRect(0, 0, W, H);
+
+    // Update and draw entities (iterate backwards for safe removal)
+    for (let i = entities.length - 1; i >= 0; i--) {
+      if (!entities[i].update()) {
+        entities.splice(i, 1);
+      } else {
+        entities[i].draw();
+      }
+    }
+  }
+
+  frame();
+})();
+</script>
+</body>
+</html>
