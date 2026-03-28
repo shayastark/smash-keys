@@ -941,12 +941,7 @@
     }
   }
 
-  // Re-acquire wake lock when page becomes visible again
-  document.addEventListener('visibilitychange', () => {
-    if (active && document.visibilityState === 'visible') {
-      requestWakeLock();
-    }
-  });
+  // Wake lock re-acquisition is handled in the main visibilitychange listener below
 
   // ─── Start ──────────────────────────────────────────────
   document.getElementById('start-btn').addEventListener('click', () => {
@@ -978,6 +973,69 @@
   document.addEventListener('keyup', (e) => {
     if (active) { e.preventDefault(); e.stopPropagation(); }
   }, true);
+
+  // Block all mouse events that could shift focus or trigger browser UI
+  document.addEventListener('mouseup', (e) => {
+    if (active && !exitShowing) e.preventDefault();
+  }, true);
+
+  document.addEventListener('dblclick', (e) => {
+    if (active) e.preventDefault();
+  }, true);
+
+  // Block drag events (trackpad text selection, file drag, etc.)
+  document.addEventListener('dragstart', (e) => {
+    if (active) e.preventDefault();
+  }, true);
+
+  document.addEventListener('selectstart', (e) => {
+    if (active) e.preventDefault();
+  }, true);
+
+  // Block middle-click (scroll wheel click opens links, auto-scroll)
+  document.addEventListener('auxclick', (e) => {
+    if (active) e.preventDefault();
+  }, true);
+
+  // Catch scroll/wheel events (trackpad two-finger swipe can navigate)
+  document.addEventListener('wheel', (e) => {
+    if (active) e.preventDefault();
+  }, { capture: true, passive: false });
+
+  // ─── Focus & fullscreen recovery ──────────────────────
+  // If the window loses focus while active, reclaim it immediately
+  window.addEventListener('blur', () => {
+    if (active && !exitShowing) {
+      setTimeout(() => window.focus(), 50);
+    }
+  });
+
+  // If fullscreen is exited unexpectedly (trackpad gesture, OS shortcut),
+  // automatically re-enter it
+  document.addEventListener('fullscreenchange', () => {
+    if (active && !exitShowing && !document.fullscreenElement) {
+      // Small delay to avoid rapid toggle loops
+      setTimeout(() => {
+        if (active && !exitShowing && !document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      }, 300);
+    }
+  });
+
+  // If visibility changes (e.g. Mission Control, app switcher), recapture
+  // when the page becomes visible again
+  document.addEventListener('visibilitychange', () => {
+    if (active && document.visibilityState === 'visible') {
+      requestWakeLock();
+      if (!exitShowing) {
+        window.focus();
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      }
+    }
+  });
 
   // ─── Render loop ────────────────────────────────────────
   function frame() {
