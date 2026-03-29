@@ -209,6 +209,9 @@
   }
 
   .theme-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
     font-family: inherit;
     font-size: clamp(0.75rem, 2vw, 1rem);
     padding: 0.4em 0.65em;
@@ -243,6 +246,57 @@
     flex-shrink: 0;
     accent-color: #feca57;
   }
+
+  .volume-block {
+    margin-top: 0.75em;
+  }
+
+  .volume-block .setting-label {
+    margin-bottom: 0.35em;
+  }
+
+  .volume-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75em;
+  }
+
+  .volume-row .toggle-row {
+    margin-top: 0;
+  }
+
+  #opt-volume {
+    flex: 1;
+    min-width: 120px;
+    max-width: 220px;
+    accent-color: #feca57;
+  }
+
+  .theme-chip-preview {
+    width: 2.35em;
+    height: 0.52em;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.4);
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.2);
+  }
+
+  #stats-overlay {
+    position: fixed;
+    left: 12px;
+    bottom: 40px;
+    font-size: clamp(0.65rem, 1.8vw, 0.8rem);
+    color: rgba(255,255,255,0.22);
+    z-index: 450;
+    pointer-events: none;
+    display: none;
+    font-weight: bold;
+  }
+
+  #stats-overlay.visible {
+    display: block;
+  }
 </style>
 </head>
 <body>
@@ -256,20 +310,34 @@
     <div id="settings-panel" hidden>
       <span class="setting-label" id="theme-label">Theme</span>
       <div class="theme-chips" role="radiogroup" aria-labelledby="theme-label">
-        <button type="button" class="theme-chip" data-theme="space" aria-checked="false" role="radio">Space</button>
-        <button type="button" class="theme-chip" data-theme="shapes" aria-checked="true" role="radio">Shapes</button>
-        <button type="button" class="theme-chip" data-theme="ocean" aria-checked="false" role="radio">Ocean</button>
-        <button type="button" class="theme-chip" data-theme="jungle" aria-checked="false" role="radio">Jungle</button>
-        <button type="button" class="theme-chip" data-theme="dinosaurs" aria-checked="false" role="radio">Dinosaurs</button>
-        <button type="button" class="theme-chip" data-theme="music" aria-checked="false" role="radio">Music</button>
+        <button type="button" class="theme-chip" data-theme="space" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Space</button>
+        <button type="button" class="theme-chip" data-theme="shapes" aria-checked="true" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Shapes</button>
+        <button type="button" class="theme-chip" data-theme="ocean" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Ocean</button>
+        <button type="button" class="theme-chip" data-theme="jungle" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Jungle</button>
+        <button type="button" class="theme-chip" data-theme="dinosaurs" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Dinosaurs</button>
+        <button type="button" class="theme-chip" data-theme="music" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Music</button>
       </div>
       <label class="toggle-row">
         <input type="checkbox" id="opt-letter" />
         <span>Letter learning (speaks letters &amp; numbers)</span>
       </label>
+      <div class="volume-block">
+        <span class="setting-label" id="volume-label">Volume</span>
+        <div class="volume-row">
+          <input type="range" id="opt-volume" min="0" max="1" step="0.01" value="1" aria-labelledby="volume-label" />
+          <label class="toggle-row">
+            <input type="checkbox" id="opt-mute" />
+            <span>Mute</span>
+          </label>
+        </div>
+      </div>
+      <label class="toggle-row">
+        <input type="checkbox" id="opt-haptics" />
+        <span>Vibration on smash (phones)</span>
+      </label>
       <label class="toggle-row">
         <input type="checkbox" id="opt-physics" />
-        <span>Bouncier physics (letters &amp; shapes bump)</span>
+        <span>Bouncy letters &amp; shapes (calmer motion)</span>
       </label>
     </div>
   </div>
@@ -287,6 +355,8 @@
 </div>
 
 <div id="esc-hint">Press ESC twice to exit</div>
+
+<div id="stats-overlay" aria-hidden="true"></div>
 
 <script>
 (() => {
@@ -311,7 +381,18 @@
   const activeTouches = new Map(); // id -> {x, y, color}
 
   const STORAGE_KEY = 'smashKeys.v1';
-  const DEFAULT_SETTINGS = { theme: 'shapes', letterLearning: false, enhancedPhysics: false };
+  const DEFAULT_SETTINGS = {
+    theme: 'shapes',
+    letterLearning: false,
+    enhancedPhysics: false,
+    volume: 1,
+    muted: false,
+    hapticsEnabled: typeof navigator !== 'undefined' && 'vibrate' in navigator && (('ontouchend' in document) && window.innerWidth < 1024)
+  };
+
+  let sessionKeys = 0;
+  let sessionTouches = 0;
+  let lastHapticAt = 0;
 
   function loadSettings() {
     try {
@@ -332,6 +413,10 @@
   let playSettings = { ...DEFAULT_SETTINGS };
   let playTheme = 'shapes';
 
+  function motionCalmFactor() {
+    return playSettings.enhancedPhysics ? 0.58 : 1;
+  }
+
   let nextSurpriseAt = 0;
   let surpriseBurst = 0;
 
@@ -346,12 +431,54 @@
 
   // ─── Audio ──────────────────────────────────────────────
   let audioCtx = null;
+  let masterGain = null;
+
+  function getAudioOut() {
+    return masterGain || audioCtx.destination;
+  }
+
+  function applyMasterVolume() {
+    if (!masterGain) return;
+    const v = playSettings.muted ? 0 : (typeof playSettings.volume === 'number' ? playSettings.volume : 1);
+    masterGain.gain.value = Math.max(0, Math.min(1, v));
+  }
 
   function initAudio() {
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 1;
+      masterGain.connect(audioCtx.destination);
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
+    applyMasterVolume();
+  }
+
+  function attachOneShotAudioResume() {
+    function onFirstGesture() {
+      if (!active) return;
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+      document.removeEventListener('pointerdown', onFirstGesture, true);
+      document.removeEventListener('touchstart', onFirstGesture, true);
+    }
+    document.addEventListener('pointerdown', onFirstGesture, true);
+    document.addEventListener('touchstart', onFirstGesture, true);
+  }
+
+  function maybeHaptic() {
+    if (!playSettings.hapticsEnabled || !('vibrate' in navigator)) return;
+    const now = Date.now();
+    if (now - lastHapticAt < 95) return;
+    lastHapticAt = now;
+    navigator.vibrate(12);
+  }
+
+  function updateStatsOverlay() {
+    const el = document.getElementById('stats-overlay');
+    if (!el) return;
+    el.textContent = `Keys: ${sessionKeys} · Touches: ${sessionTouches}`;
   }
 
   // ─── Drum sounds (synthesized) ────────────────────────
@@ -367,7 +494,7 @@
     oscGain.gain.setValueAtTime(0.8, t);
     oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
     osc.connect(oscGain);
-    oscGain.connect(audioCtx.destination);
+    oscGain.connect(getAudioOut());
     osc.start(t);
     osc.stop(t + 0.3);
     const click = audioCtx.createOscillator();
@@ -378,7 +505,7 @@
     clickGain.gain.setValueAtTime(0.5, t);
     clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
     click.connect(clickGain);
-    clickGain.connect(audioCtx.destination);
+    clickGain.connect(getAudioOut());
     click.start(t);
     click.stop(t + 0.06);
   }
@@ -401,7 +528,7 @@
     noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
     noise.connect(filter);
     filter.connect(noiseGain);
-    noiseGain.connect(audioCtx.destination);
+    noiseGain.connect(getAudioOut());
     noise.start(t);
     noise.stop(t + 0.15);
     const osc = audioCtx.createOscillator();
@@ -412,7 +539,7 @@
     oscGain.gain.setValueAtTime(0.35, t);
     oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
     osc.connect(oscGain);
-    oscGain.connect(audioCtx.destination);
+    oscGain.connect(getAudioOut());
     osc.start(t);
     osc.stop(t + 0.1);
   }
@@ -439,7 +566,7 @@
     noise.connect(hpFilter);
     hpFilter.connect(bpFilter);
     bpFilter.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(getAudioOut());
     noise.start(t);
     noise.stop(t + 0.08);
   }
@@ -486,7 +613,7 @@
     osc.connect(filter);
     filter.connect(gain);
     subGain.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(getAudioOut());
     osc.start(t);
     osc.stop(t + patch.decay);
     sub.start(t);
@@ -513,7 +640,7 @@
     gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
     osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(getAudioOut());
     osc.start();
     osc.stop(audioCtx.currentTime + 0.4);
   }
@@ -542,7 +669,7 @@
       gain.gain.setValueAtTime(0.2, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(getAudioOut());
       osc.start(t);
       osc.stop(t + 0.4);
     } else {
@@ -603,7 +730,7 @@
     osc.connect(filter);
     filter.connect(gain);
     subGain.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(getAudioOut());
     osc.start(t);
     osc.stop(t + patch.decay);
     sub.start(t);
@@ -646,7 +773,7 @@
     oscGain.gain.setValueAtTime(0.8, t);
     oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
     osc.connect(oscGain);
-    oscGain.connect(audioCtx.destination);
+    oscGain.connect(getAudioOut());
     osc.start(t);
     osc.stop(t + 0.3);
     const click = audioCtx.createOscillator();
@@ -657,7 +784,7 @@
     clickGain.gain.setValueAtTime(0.5, t);
     clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
     click.connect(clickGain);
-    clickGain.connect(audioCtx.destination);
+    clickGain.connect(getAudioOut());
     click.start(t);
     click.stop(t + 0.06);
   }
@@ -686,7 +813,7 @@
     noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
     noise.connect(filter);
     filter.connect(noiseGain);
-    noiseGain.connect(audioCtx.destination);
+    noiseGain.connect(getAudioOut());
     noise.start(t);
     noise.stop(t + 0.15);
     const osc = audioCtx.createOscillator();
@@ -697,7 +824,7 @@
     oscGain.gain.setValueAtTime(0.35, t);
     oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
     osc.connect(oscGain);
-    oscGain.connect(audioCtx.destination);
+    oscGain.connect(getAudioOut());
     osc.start(t);
     osc.stop(t + 0.1);
   }
@@ -729,7 +856,7 @@
     noise.connect(hpFilter);
     hpFilter.connect(bpFilter);
     bpFilter.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(getAudioOut());
     noise.start(t);
     noise.stop(t + 0.08);
   }
@@ -758,7 +885,7 @@
     gain.gain.setValueAtTime(g, t0);
     gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
     osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(getAudioOut());
     osc.start(t0);
     osc.stop(t0 + dur + 0.02);
   }
@@ -807,7 +934,7 @@
       gain.gain.setValueAtTime(theme === 'space' ? 0.18 : 0.2, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(getAudioOut());
       osc.start(t);
       osc.stop(t + 0.4);
     } else {
@@ -1083,8 +1210,10 @@
 
   // Particle burst
   function spawnParticles(x, y, count) {
-    for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 * i) / count + randBetween(-0.2, 0.2);
+    const m = motionCalmFactor();
+    const n = Math.max(2, Math.floor(count * m));
+    for (let i = 0; i < n; i++) {
+      const angle = (Math.PI * 2 * i) / n + randBetween(-0.2, 0.2);
       const speed = randBetween(3, 12);
       const vx = Math.cos(angle) * speed;
       const vy = Math.sin(angle) * speed;
@@ -1348,13 +1477,14 @@
 
   function triggerSurprise() {
     const th = themeDef(playTheme);
-    const bursts = 10 + Math.floor(Math.random() * 9);
+    const rawBursts = 10 + Math.floor(Math.random() * 9);
+    const bursts = Math.max(4, Math.floor(rawBursts * motionCalmFactor()));
     for (let k = 0; k < bursts; k++) {
       const sx = randBetween(W * 0.05, W * 0.95);
       const sy = randBetween(H * 0.1, H * 0.9);
       spawnParticles(sx, sy, Math.floor(randBetween(10, 28)));
-      if (Math.random() < th.starChance) spawnStar(sx, sy);
-      if (Math.random() < 0.45) spawnEmoji(sx, sy);
+      if (Math.random() < th.starChance * motionCalmFactor()) spawnStar(sx, sy);
+      if (Math.random() < 0.45 * motionCalmFactor()) spawnEmoji(sx, sy);
     }
     bumpThemeHue('surprise');
   }
@@ -1398,6 +1528,10 @@
 
     speakLearningToken(e.key);
     playSoundForTheme(e, playTheme);
+
+    sessionKeys += 1;
+    maybeHaptic();
+    updateStatsOverlay();
   }
 
   // ─── Touch handlers (mobile) ──────────────────────────
@@ -1454,6 +1588,10 @@
       bumpThemeHue('smash');
 
       playTouchSoundForTheme(x, y, playTheme);
+
+      sessionTouches += 1;
+      maybeHaptic();
+      updateStatsOverlay();
     }
   }
 
@@ -1474,7 +1612,8 @@
         const dx = x - tracked.x;
         const dy = y - tracked.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const steps = Math.max(1, Math.floor(dist / 10));
+        const stepDiv = playSettings.enhancedPhysics ? 14 : 10;
+        const steps = Math.max(1, Math.floor(dist / stepDiv));
 
         for (let s = 0; s < steps; s++) {
           const t = s / steps;
@@ -1484,10 +1623,10 @@
         }
 
         // Occasionally spawn extra effects while dragging
-        if (Math.random() < th.emojiDragChance) {
+        if (Math.random() < th.emojiDragChance * motionCalmFactor()) {
           spawnEmoji(x, y);
         }
-        if (Math.random() < 0.1) {
+        if (Math.random() < 0.1 * motionCalmFactor()) {
           spawnParticles(x, y, 8);
         }
 
@@ -1551,6 +1690,12 @@
     nextSurpriseAt = 0;
     if ('speechSynthesis' in window) speechSynthesis.cancel();
 
+    const statsEl = document.getElementById('stats-overlay');
+    if (statsEl) {
+      statsEl.classList.remove('visible');
+      statsEl.setAttribute('aria-hidden', 'true');
+    }
+
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
@@ -1607,6 +1752,20 @@
   const themeChips = document.querySelectorAll('.theme-chip');
   const optLetter = document.getElementById('opt-letter');
   const optPhysics = document.getElementById('opt-physics');
+  const optVolume = document.getElementById('opt-volume');
+  const optMute = document.getElementById('opt-mute');
+  const optHaptics = document.getElementById('opt-haptics');
+
+  function initThemeChipPreviews() {
+    themeChips.forEach((btn) => {
+      const id = btn.dataset.theme;
+      const th = THEMES[id];
+      const el = btn.querySelector('.theme-chip-preview');
+      if (!el || !th || !th.palette || th.palette.length === 0) return;
+      const cols = th.palette.slice(0, 4);
+      el.style.background = `linear-gradient(90deg, ${cols.join(',')})`;
+    });
+  }
 
   function readSettingsFromUI() {
     const sel = [...themeChips].find((b) => b.getAttribute('aria-checked') === 'true');
@@ -1614,7 +1773,10 @@
     return {
       theme,
       letterLearning: optLetter.checked,
-      enhancedPhysics: optPhysics.checked
+      enhancedPhysics: optPhysics.checked,
+      volume: Math.max(0, Math.min(1, parseFloat(optVolume.value) || 1)),
+      muted: optMute.checked,
+      hapticsEnabled: optHaptics.checked
     };
   }
 
@@ -1624,6 +1786,9 @@
     });
     optLetter.checked = s.letterLearning;
     optPhysics.checked = s.enhancedPhysics;
+    optVolume.value = typeof s.volume === 'number' ? s.volume : 1;
+    optMute.checked = !!s.muted;
+    optHaptics.checked = typeof s.hapticsEnabled === 'boolean' ? s.hapticsEnabled : DEFAULT_SETTINGS.hapticsEnabled;
   }
 
   themeChips.forEach((btn) => {
@@ -1636,6 +1801,19 @@
 
   optLetter.addEventListener('change', () => saveSettings(readSettingsFromUI()));
   optPhysics.addEventListener('change', () => saveSettings(readSettingsFromUI()));
+  optVolume.addEventListener('input', () => {
+    const s = readSettingsFromUI();
+    playSettings.volume = s.volume;
+    saveSettings(s);
+    applyMasterVolume();
+  });
+  optMute.addEventListener('change', () => {
+    const s = readSettingsFromUI();
+    playSettings.muted = s.muted;
+    saveSettings(s);
+    applyMasterVolume();
+  });
+  optHaptics.addEventListener('change', () => saveSettings(readSettingsFromUI()));
 
   settingsToggle.addEventListener('click', () => {
     const open = settingsPanel.hidden;
@@ -1645,6 +1823,7 @@
   });
 
   syncSettingsToUI(loadSettings());
+  initThemeChipPreviews();
 
   // ─── Start ──────────────────────────────────────────────
   document.getElementById('start-btn').addEventListener('click', () => {
@@ -1658,7 +1837,17 @@
     bgLight = th0.bgLight;
     nextSurpriseAt = Date.now() + 18000 + Math.random() * 24000;
 
+    sessionKeys = 0;
+    sessionTouches = 0;
+    updateStatsOverlay();
+    const statsEl = document.getElementById('stats-overlay');
+    if (statsEl) {
+      statsEl.classList.add('visible');
+      statsEl.setAttribute('aria-hidden', 'false');
+    }
+
     initAudio();
+    attachOneShotAudioResume();
     active = true;
     document.getElementById('start-screen').style.display = 'none';
     document.body.style.cursor = 'none';
@@ -1764,7 +1953,9 @@
     ctx.fillRect(0, 0, W, H);
 
     if (Date.now() >= nextSurpriseAt) {
-      nextSurpriseAt = Date.now() + 20000 + Math.random() * 28000;
+      const baseDelay = 20000 + Math.random() * 28000;
+      const extraBouncy = playSettings.enhancedPhysics ? 15000 : 0;
+      nextSurpriseAt = Date.now() + baseDelay + extraBouncy;
       if (Math.random() < 0.88) triggerSurprise();
     }
 
