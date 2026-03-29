@@ -74,6 +74,10 @@
     box-shadow: 0 2px 0 #f0b429, 0 4px 10px rgba(0,0,0,0.3);
   }
 
+  #start-screen #start-btn {
+    margin-bottom: 0.15em;
+  }
+
   @keyframes bounce {
     from { transform: translateY(0); }
     to { transform: translateY(-15px); }
@@ -153,21 +157,24 @@
 
   #settings-wrap {
     width: min(96vw, 520px);
-    margin-bottom: 1.25em;
+    margin-top: 0.85em;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   #settings-toggle {
     font-family: inherit;
-    font-size: clamp(0.95rem, 2.5vw, 1.25rem);
-    padding: 0.45em 1.2em;
-    border: 3px solid rgba(255,255,255,0.5);
-    border-radius: 50px;
-    background: rgba(255,255,255,0.2);
-    color: #fff;
+    font-size: clamp(0.75rem, 2vw, 0.95rem);
+    padding: 0.28em 0.9em;
+    border: 2px solid rgba(255,255,255,0.45);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.95);
     font-weight: bold;
     cursor: pointer;
-    width: 100%;
-    margin-bottom: 0.5em;
+    width: auto;
+    margin-bottom: 0.4em;
   }
 
   #settings-toggle:active {
@@ -179,6 +186,7 @@
     border-radius: 16px;
     padding: 1em 1em 1.1em;
     margin-bottom: 0.25em;
+    width: 100%;
   }
 
   #settings-panel[hidden] {
@@ -242,6 +250,7 @@
 <div id="start-screen">
   <h1>Smash Keys!</h1>
   <p>A keyboard playground for tiny hands</p>
+  <button id="start-btn">Start Smashing!</button>
   <div id="settings-wrap">
     <button type="button" id="settings-toggle" aria-expanded="false" aria-controls="settings-panel">Options</button>
     <div id="settings-panel" hidden>
@@ -264,7 +273,6 @@
       </label>
     </div>
   </div>
-  <button id="start-btn">Start Smashing!</button>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -606,11 +614,11 @@
     const base = SYNTH_PATCHES[digit];
     if (theme === 'shapes') return base;
     const mult = {
-      space: { f: 0.78, q: 0.88 },
-      ocean: { f: 1.1, q: 1.12 },
-      jungle: { f: 0.94, q: 1.02 },
-      dinosaurs: { f: 0.82, q: 0.9 },
-      music: { f: 1.14, q: 1.08 }
+      space: { f: 0.62, q: 0.78 },
+      ocean: { f: 1.22, q: 1.28 },
+      jungle: { f: 0.88, q: 0.95 },
+      dinosaurs: { f: 0.72, q: 0.82 },
+      music: { f: 1.28, q: 1.22 }
     }[theme] || { f: 1, q: 1 };
     return {
       type: base.type,
@@ -627,7 +635,7 @@
       return;
     }
     if (!audioCtx) return;
-    const mul = { space: 0.72, ocean: 1.12, jungle: 0.96, dinosaurs: 0.78, music: 1.18 }[theme] || 1;
+    const mul = { space: 0.58, ocean: 1.28, jungle: 0.88, dinosaurs: 0.68, music: 1.35 }[theme] || 1;
     const t = audioCtx.currentTime;
     const root = 150 * mul;
     const osc = audioCtx.createOscillator();
@@ -660,7 +668,7 @@
       return;
     }
     if (!audioCtx) return;
-    const bp = { space: 0.85, ocean: 1.08, jungle: 0.95, dinosaurs: 0.82, music: 1.12 }[theme] || 1;
+    const bp = { space: 0.72, ocean: 1.22, jungle: 0.88, dinosaurs: 0.75, music: 1.28 }[theme] || 1;
     const t = audioCtx.currentTime;
     const bufferSize = audioCtx.sampleRate * 0.15;
     const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
@@ -700,7 +708,7 @@
       return;
     }
     if (!audioCtx) return;
-    const bright = { space: 1.15, ocean: 0.92, jungle: 0.88, dinosaurs: 0.85, music: 1.25 }[theme] || 1;
+    const bright = { space: 1.35, ocean: 0.78, jungle: 0.75, dinosaurs: 0.72, music: 1.45 }[theme] || 1;
     const t = audioCtx.currentTime;
     const bufferSize = audioCtx.sampleRate * 0.08;
     const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
@@ -734,7 +742,7 @@
     if (!audioCtx) return;
     const t0 = audioCtx.currentTime;
     const code = key.charCodeAt(0) || 0;
-    const shift = { space: 5, ocean: 3, jungle: 7, dinosaurs: 2, music: 4 }[theme] || 0;
+    const shift = { space: 11, ocean: 4, jungle: 9, dinosaurs: 3, music: 7 }[theme] || 0;
     const freq = NOTE_FREQS[(code + shift) % NOTE_FREQS.length];
     const types = theme === 'music'
       ? ['square', 'sawtooth', 'triangle']
@@ -784,7 +792,7 @@
     const t = audioCtx.currentTime;
     const normalX = x / W;
     const normalY = y / H;
-    const rowShift = { space: 4, ocean: 2, jungle: 6, dinosaurs: 1, music: 3 }[theme] || 0;
+    const rowShift = { space: 9, ocean: 3, jungle: 11, dinosaurs: 2, music: 6 }[theme] || 0;
 
     if (normalY < 0.5) {
       const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
@@ -817,12 +825,15 @@
     if (!playSettings.letterLearning || !('speechSynthesis' in window)) return;
     if (key.length === 1 && /[a-zA-Z]/.test(key)) {
       speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(key.toUpperCase());
+      // Lowercase avoids "Capital G" style announcements from many TTS engines
+      const u = new SpeechSynthesisUtterance(key.toLowerCase());
+      u.lang = 'en-US';
       u.rate = 1.05;
       speechSynthesis.speak(u);
     } else if (key.length === 1 && key >= '0' && key <= '9') {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(DIGIT_NAMES[parseInt(key, 10)]);
+      u.lang = 'en-US';
       u.rate = 0.95;
       speechSynthesis.speak(u);
     }
@@ -927,6 +938,19 @@
 
   function randBetween(a, b) {
     return a + Math.random() * (b - a);
+  }
+
+  /** Background hue: Shapes keeps the original rainbow drift; other themes stay near their base so colors read clearly */
+  function bumpThemeHue(mode) {
+    if (playTheme === 'shapes') {
+      if (mode === 'surprise') bgTargetHue = (bgTargetHue + randBetween(70, 150)) % 360;
+      else if (mode === 'mouse') bgTargetHue = (bgTargetHue + 30) % 360;
+      else bgTargetHue = (bgTargetHue + randBetween(20, 60)) % 360;
+      return;
+    }
+    const base = themeDef(playTheme).bgHueBase;
+    const spread = mode === 'surprise' ? 75 : mode === 'mouse' ? 38 : 50;
+    bgTargetHue = (base + randBetween(-spread, spread) + 360) % 360;
   }
 
   // ─── Resize ─────────────────────────────────────────────
@@ -1320,7 +1344,7 @@
       if (Math.random() < th.starChance) spawnStar(sx, sy);
       if (Math.random() < 0.45) spawnEmoji(sx, sy);
     }
-    bgTargetHue = (bgTargetHue + randBetween(70, 150)) % 360;
+    bumpThemeHue('surprise');
   }
 
   // ─── Main keystroke handler (desktop) ─────────────────
@@ -1354,7 +1378,11 @@
     if (Math.random() < th.starChance) spawnStar(x, y);
     if (Math.random() < th.bounceChance) spawnBouncingShape(x, y);
 
-    bgTargetHue = (bgTargetHue + randBetween(20, 60)) % 360;
+    if (playTheme !== 'shapes' && Math.random() < 0.72) {
+      spawnEmoji(x + randBetween(-110, 110), y + randBetween(-70, 70));
+    }
+
+    bumpThemeHue('smash');
 
     speakLearningToken(e.key);
     playSoundForTheme(e, playTheme);
@@ -1411,7 +1439,7 @@
       if (Math.random() < th.starChance) spawnStar(x, y);
       if (Math.random() < th.bounceChance) spawnBouncingShape(x, y);
 
-      bgTargetHue = (bgTargetHue + randBetween(20, 60)) % 360;
+      bumpThemeHue('smash');
 
       playTouchSoundForTheme(x, y, playTheme);
     }
@@ -1488,7 +1516,7 @@
     spawnRing(x, y);
     if (Math.random() < 0.5) spawnStar(x, y);
     spawnBouncingShape(x, y);
-    bgTargetHue = (bgTargetHue + 30) % 360;
+    bumpThemeHue('mouse');
     playMelodicNoteThemed('a', playTheme);
   }
 
