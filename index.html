@@ -414,7 +414,7 @@
   let playTheme = 'shapes';
 
   function motionCalmFactor() {
-    return playSettings.enhancedPhysics ? 0.58 : 1;
+    return playSettings.enhancedPhysics ? 0.4 : 1;
   }
 
   let nextSurpriseAt = 0;
@@ -1130,8 +1130,8 @@
       return;
     }
 
-    const vx0 = randBetween(-14, 14);
-    const vy0 = randBetween(-14, 14);
+    const vx0 = randBetween(-8, 8);
+    const vy0 = randBetween(-8, 8);
     const body = {
       x, y, vx: vx0, vy: vy0, life, decay, size, color, display,
       r: size * 0.45
@@ -1141,7 +1141,7 @@
       _collide: true,
       body,
       update() {
-        body.vy += 0.065;
+        body.vy += 0.038;
         body.x += body.vx;
         body.y += body.vy;
         if (body.x < body.r) { body.x = body.r; body.vx *= -0.93; }
@@ -1149,7 +1149,7 @@
         if (body.y < body.r) { body.y = body.r; body.vy *= -0.91; }
         if (body.y > H - body.r) { body.y = H - body.r; body.vy *= -0.91; }
         const sp = Math.hypot(body.vx, body.vy);
-        const vmax = 32;
+        const vmax = 20;
         if (sp > vmax) {
           body.vx *= vmax / sp;
           body.vy *= vmax / sp;
@@ -1388,8 +1388,8 @@
       return;
     }
 
-    const pvx = randBetween(-12, 12);
-    const pvy = randBetween(-12, 12);
+    const pvx = randBetween(-8, 8);
+    const pvy = randBetween(-8, 8);
     const body = {
       x, y, vx: pvx, vy: pvy, life, decay, size, color, shape,
       r: size
@@ -1399,7 +1399,7 @@
       _collide: true,
       body,
       update() {
-        body.vy += 0.09;
+        body.vy += 0.052;
         body.x += body.vx;
         body.y += body.vy;
         if (body.x < body.r) { body.x = body.r; body.vx *= -0.93; }
@@ -1407,7 +1407,7 @@
         if (body.y > H - body.r) { body.y = H - body.r; body.vy *= -0.91; }
         if (body.y < body.r) { body.y = body.r; body.vy *= -0.91; }
         const sp = Math.hypot(body.vx, body.vy);
-        const vmax = 32;
+        const vmax = 20;
         if (sp > vmax) {
           body.vx *= vmax / sp;
           body.vy *= vmax / sp;
@@ -1445,7 +1445,7 @@
       if (entities[i]._collide && entities[i].body) list.push(entities[i]);
       if (list.length >= 32) break;
     }
-    const rest = 0.9;
+    const rest = 0.78;
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i].body;
@@ -1612,7 +1612,7 @@
         const dx = x - tracked.x;
         const dy = y - tracked.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const stepDiv = playSettings.enhancedPhysics ? 14 : 10;
+        const stepDiv = playSettings.enhancedPhysics ? 20 : 10;
         const steps = Math.max(1, Math.floor(dist / stepDiv));
 
         for (let s = 0; s < steps; s++) {
@@ -1954,7 +1954,7 @@
 
     if (Date.now() >= nextSurpriseAt) {
       const baseDelay = 20000 + Math.random() * 28000;
-      const extraBouncy = playSettings.enhancedPhysics ? 15000 : 0;
+      const extraBouncy = playSettings.enhancedPhysics ? 24000 : 0;
       nextSurpriseAt = Date.now() + baseDelay + extraBouncy;
       if (Math.random() < 0.88) triggerSurprise();
     }
