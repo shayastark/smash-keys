@@ -150,6 +150,91 @@
     z-index: 500;
     pointer-events: none;
   }
+
+  #settings-wrap {
+    width: min(96vw, 520px);
+    margin-bottom: 1.25em;
+  }
+
+  #settings-toggle {
+    font-family: inherit;
+    font-size: clamp(0.95rem, 2.5vw, 1.25rem);
+    padding: 0.45em 1.2em;
+    border: 3px solid rgba(255,255,255,0.5);
+    border-radius: 50px;
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+    font-weight: bold;
+    cursor: pointer;
+    width: 100%;
+    margin-bottom: 0.5em;
+  }
+
+  #settings-toggle:active {
+    transform: scale(0.98);
+  }
+
+  #settings-panel {
+    background: rgba(0,0,0,0.25);
+    border-radius: 16px;
+    padding: 1em 1em 1.1em;
+    margin-bottom: 0.25em;
+  }
+
+  #settings-panel[hidden] {
+    display: none !important;
+  }
+
+  .setting-label {
+    display: block;
+    font-size: clamp(0.85rem, 2vw, 1.1rem);
+    color: rgba(255,255,255,0.95);
+    margin-bottom: 0.5em;
+    font-weight: bold;
+  }
+
+  .theme-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45em;
+    justify-content: center;
+  }
+
+  .theme-chip {
+    font-family: inherit;
+    font-size: clamp(0.75rem, 2vw, 1rem);
+    padding: 0.4em 0.65em;
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.25);
+    color: #fff;
+    cursor: pointer;
+    font-weight: bold;
+  }
+
+  .theme-chip[aria-checked="true"] {
+    border-color: #feca57;
+    background: rgba(254, 202, 87, 0.35);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.15);
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    font-size: clamp(0.85rem, 2.2vw, 1.15rem);
+    color: rgba(255,255,255,0.95);
+    margin-top: 0.75em;
+    cursor: pointer;
+    font-weight: bold;
+  }
+
+  .toggle-row input {
+    width: 1.35em;
+    height: 1.35em;
+    flex-shrink: 0;
+    accent-color: #feca57;
+  }
 </style>
 </head>
 <body>
@@ -157,6 +242,28 @@
 <div id="start-screen">
   <h1>Smash Keys!</h1>
   <p>A keyboard playground for tiny hands</p>
+  <div id="settings-wrap">
+    <button type="button" id="settings-toggle" aria-expanded="false" aria-controls="settings-panel">Options</button>
+    <div id="settings-panel" hidden>
+      <span class="setting-label" id="theme-label">Theme</span>
+      <div class="theme-chips" role="radiogroup" aria-labelledby="theme-label">
+        <button type="button" class="theme-chip" data-theme="space" aria-checked="false" role="radio">Space</button>
+        <button type="button" class="theme-chip" data-theme="shapes" aria-checked="true" role="radio">Shapes</button>
+        <button type="button" class="theme-chip" data-theme="ocean" aria-checked="false" role="radio">Ocean</button>
+        <button type="button" class="theme-chip" data-theme="jungle" aria-checked="false" role="radio">Jungle</button>
+        <button type="button" class="theme-chip" data-theme="dinosaurs" aria-checked="false" role="radio">Dinosaurs</button>
+        <button type="button" class="theme-chip" data-theme="music" aria-checked="false" role="radio">Music</button>
+      </div>
+      <label class="toggle-row">
+        <input type="checkbox" id="opt-letter" />
+        <span>Letter learning (speaks letters &amp; numbers)</span>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="opt-physics" />
+        <span>Bouncier physics (letters &amp; shapes bump)</span>
+      </label>
+    </div>
+  </div>
   <button id="start-btn">Start Smashing!</button>
 </div>
 
@@ -189,9 +296,36 @@
   const entities = [];   // all animated objects
   let bgHue = 220;
   let bgTargetHue = 220;
+  let bgSat = 40;
+  let bgLight = 15;
 
   // Track active touch points for trails
   const activeTouches = new Map(); // id -> {x, y, color}
+
+  const STORAGE_KEY = 'smashKeys.v1';
+  const DEFAULT_SETTINGS = { theme: 'shapes', letterLearning: false, enhancedPhysics: false };
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { ...DEFAULT_SETTINGS };
+      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    } catch {
+      return { ...DEFAULT_SETTINGS };
+    }
+  }
+
+  function saveSettings(s) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    } catch (_) {}
+  }
+
+  let playSettings = { ...DEFAULT_SETTINGS };
+  let playTheme = 'shapes';
+
+  let nextSurpriseAt = 0;
+  let surpriseBurst = 0;
 
   // ─── Adapt UI for mobile ──────────────────────────────
   if (isMobile) {
@@ -433,22 +567,362 @@
     }
   }
 
-  // ─── Colors ─────────────────────────────────────────────
-  const PALETTE = [
+  const DIGIT_NAMES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+
+  function playSynthWithPatch(patch) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    osc.type = patch.type;
+    osc.frequency.setValueAtTime(patch.freq, t);
+    osc.frequency.exponentialRampToValueAtTime(patch.freq * 0.85, t + patch.decay);
+    const sub = audioCtx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(patch.freq * 0.5, t);
+    const subGain = audioCtx.createGain();
+    subGain.gain.setValueAtTime(0.1, t);
+    subGain.gain.exponentialRampToValueAtTime(0.001, t + patch.decay);
+    sub.connect(subGain);
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(patch.filterFreq * 3, t);
+    filter.frequency.exponentialRampToValueAtTime(patch.filterFreq, t + patch.decay * 0.6);
+    filter.Q.value = 5;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.18, t + patch.attack);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + patch.decay);
+    osc.connect(filter);
+    filter.connect(gain);
+    subGain.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + patch.decay);
+    sub.start(t);
+    sub.stop(t + patch.decay);
+  }
+
+  function synthPatchForTheme(digit, theme) {
+    const base = SYNTH_PATCHES[digit];
+    if (theme === 'shapes') return base;
+    const mult = {
+      space: { f: 0.78, q: 0.88 },
+      ocean: { f: 1.1, q: 1.12 },
+      jungle: { f: 0.94, q: 1.02 },
+      dinosaurs: { f: 0.82, q: 0.9 },
+      music: { f: 1.14, q: 1.08 }
+    }[theme] || { f: 1, q: 1 };
+    return {
+      type: base.type,
+      freq: base.freq * mult.f,
+      attack: base.attack,
+      decay: base.decay * (theme === 'ocean' ? 1.08 : 1),
+      filterFreq: base.filterFreq * mult.q
+    };
+  }
+
+  function playBassDrumThemed(theme) {
+    if (theme === 'shapes') {
+      playBassDrum();
+      return;
+    }
+    if (!audioCtx) return;
+    const mul = { space: 0.72, ocean: 1.12, jungle: 0.96, dinosaurs: 0.78, music: 1.18 }[theme] || 1;
+    const t = audioCtx.currentTime;
+    const root = 150 * mul;
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(root, t);
+    osc.frequency.exponentialRampToValueAtTime(30 * mul, t + 0.15);
+    oscGain.gain.setValueAtTime(0.8, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    osc.connect(oscGain);
+    oscGain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.3);
+    const click = audioCtx.createOscillator();
+    const clickGain = audioCtx.createGain();
+    click.type = 'triangle';
+    click.frequency.setValueAtTime(300 * mul, t);
+    click.frequency.exponentialRampToValueAtTime(60, t + 0.04);
+    clickGain.gain.setValueAtTime(0.5, t);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    click.connect(clickGain);
+    clickGain.connect(audioCtx.destination);
+    click.start(t);
+    click.stop(t + 0.06);
+  }
+
+  function playSnareThemed(variant, theme) {
+    if (theme === 'shapes') {
+      playSnare(variant);
+      return;
+    }
+    if (!audioCtx) return;
+    const bp = { space: 0.85, ocean: 1.08, jungle: 0.95, dinosaurs: 0.82, music: 1.12 }[theme] || 1;
+    const t = audioCtx.currentTime;
+    const bufferSize = audioCtx.sampleRate * 0.15;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    const f0 = (variant === 'shift' ? 5000 : 3500) * bp;
+    filter.frequency.value = f0;
+    filter.Q.value = variant === 'shift' ? 0.8 : 1.2;
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime((variant === 'shift' ? 0.4 : 0.35) * (theme === 'music' ? 1.05 : 1), t);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(audioCtx.destination);
+    noise.start(t);
+    noise.stop(t + 0.15);
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime((variant === 'shift' ? 220 : 180) * bp, t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.08);
+    oscGain.gain.setValueAtTime(0.35, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    osc.connect(oscGain);
+    oscGain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.1);
+  }
+
+  function playHiHatThemed(theme) {
+    if (theme === 'shapes') {
+      playHiHat();
+      return;
+    }
+    if (!audioCtx) return;
+    const bright = { space: 1.15, ocean: 0.92, jungle: 0.88, dinosaurs: 0.85, music: 1.25 }[theme] || 1;
+    const t = audioCtx.currentTime;
+    const bufferSize = audioCtx.sampleRate * 0.08;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const hpFilter = audioCtx.createBiquadFilter();
+    hpFilter.type = 'highpass';
+    hpFilter.frequency.value = 7000 * bright;
+    const bpFilter = audioCtx.createBiquadFilter();
+    bpFilter.type = 'bandpass';
+    bpFilter.frequency.value = 10000 * bright;
+    bpFilter.Q.value = 1.5;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.25, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    noise.connect(hpFilter);
+    hpFilter.connect(bpFilter);
+    bpFilter.connect(gain);
+    gain.connect(audioCtx.destination);
+    noise.start(t);
+    noise.stop(t + 0.08);
+  }
+
+  function playMelodicNoteThemed(key, theme) {
+    if (theme === 'shapes') {
+      playMelodicNote(key);
+      return;
+    }
+    if (!audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const code = key.charCodeAt(0) || 0;
+    const shift = { space: 5, ocean: 3, jungle: 7, dinosaurs: 2, music: 4 }[theme] || 0;
+    const freq = NOTE_FREQS[(code + shift) % NOTE_FREQS.length];
+    const types = theme === 'music'
+      ? ['square', 'sawtooth', 'triangle']
+      : theme === 'ocean'
+        ? ['sine', 'triangle', 'sine']
+        : ['sine', 'triangle', 'square'];
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = types[code % types.length];
+    osc.frequency.setValueAtTime(freq, t0);
+    const g = theme === 'space' ? 0.13 : 0.15;
+    const dur = theme === 'jungle' ? 0.45 : 0.4;
+    gain.gain.setValueAtTime(g, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+
+  function playSoundForTheme(e, theme) {
+    if (theme === 'shapes') {
+      playSound(e);
+      return;
+    }
+    if (e.key === ' ') {
+      playBassDrumThemed(theme);
+    } else if (e.key === 'Shift') {
+      playSnareThemed('shift', theme);
+    } else if (e.key === 'Enter') {
+      playSnareThemed('enter', theme);
+    } else if (e.key === 'Tab') {
+      playHiHatThemed(theme);
+    } else if (e.key >= '0' && e.key <= '9') {
+      playSynthWithPatch(synthPatchForTheme(parseInt(e.key, 10), theme));
+    } else {
+      playMelodicNoteThemed(e.key, theme);
+    }
+  }
+
+  function playTouchSoundForTheme(x, y, theme) {
+    if (theme === 'shapes') {
+      playTouchSound(x, y);
+      return;
+    }
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const normalX = x / W;
+    const normalY = y / H;
+    const rowShift = { space: 4, ocean: 2, jungle: 6, dinosaurs: 1, music: 3 }[theme] || 0;
+
+    if (normalY < 0.5) {
+      const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
+      const idx = Math.min((freqIndex + rowShift) % NOTE_FREQS.length, NOTE_FREQS.length - 1);
+      const freq = NOTE_FREQS[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const types = theme === 'ocean' ? ['sine', 'triangle', 'sine'] : ['sine', 'triangle', 'square'];
+      osc.type = types[Math.floor((normalY / 0.5) * types.length) % types.length];
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.exponentialRampToValueAtTime(freq * (theme === 'dinosaurs' ? 0.88 : 0.9), t + 0.4);
+      gain.gain.setValueAtTime(theme === 'space' ? 0.18 : 0.2, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    } else {
+      if (normalX < 0.33) {
+        playBassDrumThemed(theme);
+      } else if (normalX < 0.66) {
+        playSnareThemed(normalX < 0.5 ? 'shift' : 'enter', theme);
+      } else {
+        playHiHatThemed(theme);
+      }
+    }
+  }
+
+  function speakLearningToken(key) {
+    if (!playSettings.letterLearning || !('speechSynthesis' in window)) return;
+    if (key.length === 1 && /[a-zA-Z]/.test(key)) {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(key.toUpperCase());
+      u.rate = 1.05;
+      speechSynthesis.speak(u);
+    } else if (key.length === 1 && key >= '0' && key <= '9') {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(DIGIT_NAMES[parseInt(key, 10)]);
+      u.rate = 0.95;
+      speechSynthesis.speak(u);
+    }
+  }
+
+  // ─── Themes (visual) ───────────────────────────────────
+  const PALETTE_SHAPES = [
     '#ff6b6b', '#feca57', '#48dbfb', '#ff9ff3', '#54a0ff',
     '#5f27cd', '#01a3a4', '#f368e0', '#ff9f43', '#10ac84',
     '#ee5a24', '#0abde3', '#c8d6e5', '#ffd32a', '#ff3838',
     '#3ae374', '#17c0eb', '#7158e2', '#fd7272', '#34e7e4'
   ];
 
-  const EMOJI_SET = [
+  const EMOJI_SHAPES = [
     '🌟', '💥', '🎉', '🔥', '⭐', '🎵', '🎶', '❤️',
     '🦄', '🌈', '🚀', '🎸', '🥁', '🎹', '🐱', '🐶',
     '🦋', '🌸', '🍭', '🎈', '🎊', '✨', '💫', '🌺'
   ];
 
+  const THEMES = {
+    shapes: {
+      label: 'Shapes',
+      palette: PALETTE_SHAPES,
+      emojis: EMOJI_SHAPES,
+      bgSat: 40,
+      bgLight: 15,
+      bgHueBase: 220,
+      starChance: 0.5,
+      bounceChance: 0.3,
+      emojiDragChance: 0.15
+    },
+    space: {
+      label: 'Space',
+      palette: ['#1a1a2e', '#16213e', '#e94560', '#0f3460', '#c8b6ff', '#a78bfa', '#60a5fa', '#f472b6', '#38bdf8', '#818cf8'],
+      emojis: ['🚀', '🌙', '⭐', '🌟', '🪐', '👽', '☄️', '🛸', '🛰️', '✨', '🌌', '🔭'],
+      bgSat: 55,
+      bgLight: 10,
+      bgHueBase: 248,
+      starChance: 0.72,
+      bounceChance: 0.26,
+      emojiDragChance: 0.12
+    },
+    ocean: {
+      label: 'Ocean',
+      palette: ['#0077b6', '#00b4d8', '#90e0ef', '#caf0f8', '#023e8a', '#48cae4', '#ade8f4', '#ff6b6b', '#5ec4d4', '#4361ee'],
+      emojis: ['🐠', '🐙', '🦈', '🐚', '🌊', '💧', '🐳', '🦀', '🪸', '🐡', '⭐', '🐋'],
+      bgSat: 48,
+      bgLight: 14,
+      bgHueBase: 200,
+      starChance: 0.36,
+      bounceChance: 0.36,
+      emojiDragChance: 0.18
+    },
+    jungle: {
+      label: 'Jungle',
+      palette: ['#2d6a4f', '#40916c', '#52b788', '#74c69d', '#95d5b2', '#d8f3dc', '#ee9b00', '#ca6702', '#bb3e03', '#9b2226'],
+      emojis: ['🦜', '🐸', '🐍', '🌴', '🍌', '🦋', '🐒', '🌺', '🌿', '🐆', '🦥', '🪵'],
+      bgSat: 42,
+      bgLight: 12,
+      bgHueBase: 128,
+      starChance: 0.42,
+      bounceChance: 0.33,
+      emojiDragChance: 0.16
+    },
+    dinosaurs: {
+      label: 'Dinosaurs',
+      palette: ['#582f0e', '#7f4f24', '#a8785e', '#d4a574', '#7cb342', '#558b2f', '#8d6e63', '#bcaaa4', '#ffb74d', '#ff8a65'],
+      emojis: ['🦕', '🦖', '🦴', '🌋', '🪨', '🌿', '🥚', '🦎', '🪨', '🪵', '⭐', '🌴'],
+      bgSat: 38,
+      bgLight: 13,
+      bgHueBase: 35,
+      starChance: 0.46,
+      bounceChance: 0.31,
+      emojiDragChance: 0.14
+    },
+    music: {
+      label: 'Music',
+      palette: ['#f72585', '#b5179e', '#7209b7', '#560bad', '#480ca8', '#3a0ca3', '#fbbf24', '#f59e0b', '#ec4899', '#a855f7'],
+      emojis: ['🎵', '🎶', '🎹', '🎸', '🥁', '🎺', '🎤', '🎧', '🎼', '✨', '💫', '🎷'],
+      bgSat: 50,
+      bgLight: 16,
+      bgHueBase: 300,
+      starChance: 0.56,
+      bounceChance: 0.29,
+      emojiDragChance: 0.15
+    }
+  };
+
+  function themeDef(id) {
+    return THEMES[id] || THEMES.shapes;
+  }
+
   function randColor() {
-    return PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    const pal = themeDef(playTheme).palette;
+    return pal[Math.floor(Math.random() * pal.length)];
+  }
+
+  function randEmoji() {
+    const em = themeDef(playTheme).emojis;
+    return em[Math.floor(Math.random() * em.length)];
   }
 
   function randBetween(a, b) {
@@ -477,27 +951,68 @@
     const decay = randBetween(0.008, 0.015);
     const display = key.length === 1 ? key.toUpperCase() : '?';
 
+    if (!playSettings.enhancedPhysics) {
+      entities.push({
+        update() {
+          x += vx;
+          y += vy;
+          rot += rotation;
+          life -= decay;
+          return life > 0;
+        },
+        draw() {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(rot);
+          ctx.globalAlpha = life;
+          ctx.font = `bold ${size}px 'Comic Sans MS', sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = size * 0.06;
+          ctx.strokeText(display, 0, 0);
+          ctx.fillStyle = color;
+          ctx.fillText(display, 0, 0);
+          ctx.restore();
+        }
+      });
+      return;
+    }
+
+    const body = {
+      x, y, vx, vy, rot, rotSpeed: rotation, life, decay, size, color, display,
+      r: size * 0.45
+    };
+
     entities.push({
+      _collide: true,
+      body,
       update() {
-        x += vx;
-        y += vy;
-        rot += rotation;
-        life -= decay;
-        return life > 0;
+        body.vy += 0.12;
+        body.x += body.vx;
+        body.y += body.vy;
+        if (body.x < body.r) { body.x = body.r; body.vx *= -0.85; }
+        if (body.x > W - body.r) { body.x = W - body.r; body.vx *= -0.85; }
+        if (body.y < body.r) { body.y = body.r; body.vy *= -0.75; }
+        if (body.y > H - body.r) { body.y = H - body.r; body.vy *= -0.75; }
+        body.rot += body.rotSpeed;
+        body.life -= body.decay;
+        return body.life > 0;
       },
       draw() {
+        const b = body;
         ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(rot);
-        ctx.globalAlpha = life;
-        ctx.font = `bold ${size}px 'Comic Sans MS', sans-serif`;
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.rot);
+        ctx.globalAlpha = b.life;
+        ctx.font = `bold ${b.size}px 'Comic Sans MS', sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.strokeStyle = '#fff';
-        ctx.lineWidth = size * 0.06;
-        ctx.strokeText(display, 0, 0);
-        ctx.fillStyle = color;
-        ctx.fillText(display, 0, 0);
+        ctx.lineWidth = b.size * 0.06;
+        ctx.strokeText(b.display, 0, 0);
+        ctx.fillStyle = b.color;
+        ctx.fillText(b.display, 0, 0);
         ctx.restore();
       }
     });
@@ -505,7 +1020,7 @@
 
   // Floating emoji (mobile)
   function spawnEmoji(x, y) {
-    const emoji = EMOJI_SET[Math.floor(Math.random() * EMOJI_SET.length)];
+    const emoji = randEmoji();
     const size = randBetween(40, 100);
     const vx = randBetween(-3, 3);
     const vy = randBetween(-5, -2);
@@ -676,40 +1191,136 @@
     let rot = 0;
     const spin = randBetween(-0.05, 0.05);
 
+    if (!playSettings.enhancedPhysics) {
+      entities.push({
+        update() {
+          vy += 0.2;
+          x += vx;
+          y += vy;
+          rot += spin;
+          if (x < size) { x = size; vx *= -0.8; }
+          if (x > W - size) { x = W - size; vx *= -0.8; }
+          if (y > H - size) { y = H - size; vy *= -0.8; }
+          if (y < size) { y = size; vy *= -0.8; }
+          life -= decay;
+          return life > 0;
+        },
+        draw() {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(rot);
+          ctx.globalAlpha = life;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          if (shape === 0) {
+            ctx.arc(0, 0, size, 0, Math.PI * 2);
+          } else if (shape === 1) {
+            ctx.rect(-size, -size, size * 2, size * 2);
+          } else {
+            ctx.moveTo(0, -size);
+            ctx.lineTo(size, size);
+            ctx.lineTo(-size, size);
+            ctx.closePath();
+          }
+          ctx.fill();
+          ctx.restore();
+        }
+      });
+      return;
+    }
+
+    const body = {
+      x, y, vx, vy, rot, spin, life, decay, size, color, shape,
+      r: size
+    };
+
     entities.push({
+      _collide: true,
+      body,
       update() {
-        vy += 0.2;
-        x += vx;
-        y += vy;
-        rot += spin;
-        if (x < size) { x = size; vx *= -0.8; }
-        if (x > W - size) { x = W - size; vx *= -0.8; }
-        if (y > H - size) { y = H - size; vy *= -0.8; }
-        if (y < size) { y = size; vy *= -0.8; }
-        life -= decay;
-        return life > 0;
+        body.vy += 0.2;
+        body.x += body.vx;
+        body.y += body.vy;
+        body.rot += body.spin;
+        if (body.x < body.r) { body.x = body.r; body.vx *= -0.8; }
+        if (body.x > W - body.r) { body.x = W - body.r; body.vx *= -0.8; }
+        if (body.y > H - body.r) { body.y = H - body.r; body.vy *= -0.8; }
+        if (body.y < body.r) { body.y = body.r; body.vy *= -0.8; }
+        body.life -= body.decay;
+        return body.life > 0;
       },
       draw() {
+        const b = body;
         ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(rot);
-        ctx.globalAlpha = life;
-        ctx.fillStyle = color;
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.rot);
+        ctx.globalAlpha = b.life;
+        ctx.fillStyle = b.color;
         ctx.beginPath();
-        if (shape === 0) {
-          ctx.arc(0, 0, size, 0, Math.PI * 2);
-        } else if (shape === 1) {
-          ctx.rect(-size, -size, size * 2, size * 2);
+        if (b.shape === 0) {
+          ctx.arc(0, 0, b.size, 0, Math.PI * 2);
+        } else if (b.shape === 1) {
+          ctx.rect(-b.size, -b.size, b.size * 2, b.size * 2);
         } else {
-          ctx.moveTo(0, -size);
-          ctx.lineTo(size, size);
-          ctx.lineTo(-size, size);
+          ctx.moveTo(0, -b.size);
+          ctx.lineTo(b.size, b.size);
+          ctx.lineTo(-b.size, b.size);
           ctx.closePath();
         }
         ctx.fill();
         ctx.restore();
       }
     });
+  }
+
+  function resolveCollisions() {
+    if (!playSettings.enhancedPhysics) return;
+    const list = [];
+    for (let i = entities.length - 1; i >= 0; i--) {
+      if (entities[i]._collide && entities[i].body) list.push(entities[i]);
+      if (list.length >= 32) break;
+    }
+    const rest = 0.78;
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i].body;
+        const b = list[j].body;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy);
+        const minD = a.r + b.r;
+        if (dist >= minD || dist < 0.001) continue;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const overlap = minD - dist;
+        a.x -= nx * overlap * 0.5;
+        a.y -= ny * overlap * 0.5;
+        b.x += nx * overlap * 0.5;
+        b.y += ny * overlap * 0.5;
+        const rvx = b.vx - a.vx;
+        const rvy = b.vy - a.vy;
+        const reln = rvx * nx + rvy * ny;
+        if (reln > 0) continue;
+        const jimp = -(1 + rest) * reln / 2;
+        a.vx -= jimp * nx;
+        a.vy -= jimp * ny;
+        b.vx += jimp * nx;
+        b.vy += jimp * ny;
+      }
+    }
+  }
+
+  function triggerSurprise() {
+    const th = themeDef(playTheme);
+    const bursts = 10 + Math.floor(Math.random() * 9);
+    for (let k = 0; k < bursts; k++) {
+      const sx = randBetween(W * 0.05, W * 0.95);
+      const sy = randBetween(H * 0.1, H * 0.9);
+      spawnParticles(sx, sy, Math.floor(randBetween(10, 28)));
+      if (Math.random() < th.starChance) spawnStar(sx, sy);
+      if (Math.random() < 0.45) spawnEmoji(sx, sy);
+    }
+    bgTargetHue = (bgTargetHue + randBetween(70, 150)) % 360;
   }
 
   // ─── Main keystroke handler (desktop) ─────────────────
@@ -734,17 +1345,19 @@
 
     const x = randBetween(W * 0.1, W * 0.9);
     const y = randBetween(H * 0.15, H * 0.85);
+    const th = themeDef(playTheme);
 
     spawnLetter(e.key, x, y);
     spawnParticles(x, y, Math.floor(randBetween(15, 35)));
     spawnRing(x, y);
 
-    if (Math.random() < 0.5) spawnStar(x, y);
-    if (Math.random() < 0.3) spawnBouncingShape(x, y);
+    if (Math.random() < th.starChance) spawnStar(x, y);
+    if (Math.random() < th.bounceChance) spawnBouncingShape(x, y);
 
     bgTargetHue = (bgTargetHue + randBetween(20, 60)) % 360;
 
-    playSound(e);
+    speakLearningToken(e.key);
+    playSoundForTheme(e, playTheme);
   }
 
   // ─── Touch handlers (mobile) ──────────────────────────
@@ -778,6 +1391,8 @@
 
     if (exitShowing) return;
 
+    const th = themeDef(playTheme);
+
     // Process each new touch point
     for (let i = 0; i < e.changedTouches.length; i++) {
       const touch = e.changedTouches[i];
@@ -793,19 +1408,20 @@
       spawnRing(x, y);
       spawnEmoji(x, y);
 
-      if (Math.random() < 0.5) spawnStar(x, y);
-      if (Math.random() < 0.4) spawnBouncingShape(x, y);
+      if (Math.random() < th.starChance) spawnStar(x, y);
+      if (Math.random() < th.bounceChance) spawnBouncingShape(x, y);
 
       bgTargetHue = (bgTargetHue + randBetween(20, 60)) % 360;
 
-      // Position-based sound
-      playTouchSound(x, y);
+      playTouchSoundForTheme(x, y, playTheme);
     }
   }
 
   function handleTouchMove(e) {
     if (!active || exitShowing) return;
     e.preventDefault();
+
+    const th = themeDef(playTheme);
 
     for (let i = 0; i < e.changedTouches.length; i++) {
       const touch = e.changedTouches[i];
@@ -828,7 +1444,7 @@
         }
 
         // Occasionally spawn extra effects while dragging
-        if (Math.random() < 0.15) {
+        if (Math.random() < th.emojiDragChance) {
           spawnEmoji(x, y);
         }
         if (Math.random() < 0.1) {
@@ -873,7 +1489,7 @@
     if (Math.random() < 0.5) spawnStar(x, y);
     spawnBouncingShape(x, y);
     bgTargetHue = (bgTargetHue + 30) % 360;
-    playMelodicNote('a');
+    playMelodicNoteThemed('a', playTheme);
   }
 
   // ─── Exit overlay ──────────────────────────────────────
@@ -892,6 +1508,8 @@
     hideExit();
     entities.length = 0;
     activeTouches.clear();
+    nextSurpriseAt = 0;
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
 
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
@@ -943,8 +1561,63 @@
 
   // Wake lock re-acquisition is handled in the main visibilitychange listener below
 
+  // ─── Settings UI ───────────────────────────────────────
+  const settingsPanel = document.getElementById('settings-panel');
+  const settingsToggle = document.getElementById('settings-toggle');
+  const themeChips = document.querySelectorAll('.theme-chip');
+  const optLetter = document.getElementById('opt-letter');
+  const optPhysics = document.getElementById('opt-physics');
+
+  function readSettingsFromUI() {
+    const sel = [...themeChips].find((b) => b.getAttribute('aria-checked') === 'true');
+    const theme = sel && sel.dataset.theme ? sel.dataset.theme : 'shapes';
+    return {
+      theme,
+      letterLearning: optLetter.checked,
+      enhancedPhysics: optPhysics.checked
+    };
+  }
+
+  function syncSettingsToUI(s) {
+    themeChips.forEach((btn) => {
+      btn.setAttribute('aria-checked', btn.dataset.theme === s.theme ? 'true' : 'false');
+    });
+    optLetter.checked = s.letterLearning;
+    optPhysics.checked = s.enhancedPhysics;
+  }
+
+  themeChips.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      themeChips.forEach((b) => b.setAttribute('aria-checked', 'false'));
+      btn.setAttribute('aria-checked', 'true');
+      saveSettings(readSettingsFromUI());
+    });
+  });
+
+  optLetter.addEventListener('change', () => saveSettings(readSettingsFromUI()));
+  optPhysics.addEventListener('change', () => saveSettings(readSettingsFromUI()));
+
+  settingsToggle.addEventListener('click', () => {
+    const open = settingsPanel.hidden;
+    settingsPanel.hidden = !open;
+    settingsToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    settingsToggle.textContent = open ? 'Hide options' : 'Options';
+  });
+
+  syncSettingsToUI(loadSettings());
+
   // ─── Start ──────────────────────────────────────────────
   document.getElementById('start-btn').addEventListener('click', () => {
+    playSettings = readSettingsFromUI();
+    saveSettings(playSettings);
+    playTheme = playSettings.theme;
+    const th0 = themeDef(playTheme);
+    bgHue = th0.bgHueBase;
+    bgTargetHue = th0.bgHueBase;
+    bgSat = th0.bgSat;
+    bgLight = th0.bgLight;
+    nextSurpriseAt = Date.now() + 18000 + Math.random() * 24000;
+
     initAudio();
     active = true;
     document.getElementById('start-screen').style.display = 'none';
@@ -1042,20 +1715,24 @@
     requestAnimationFrame(frame);
     if (!active) return;
 
-    // Smooth background transition
+    const th = themeDef(playTheme);
+    bgSat += (th.bgSat - bgSat) * 0.04;
+    bgLight += (th.bgLight - bgLight) * 0.04;
+
     bgHue += (bgTargetHue - bgHue) * 0.05;
-    const bgLight = 15;
-    ctx.fillStyle = `hsl(${bgHue}, 40%, ${bgLight}%)`;
+    ctx.fillStyle = `hsl(${bgHue}, ${bgSat}%, ${bgLight}%)`;
     ctx.fillRect(0, 0, W, H);
 
-    // Update and draw entities (iterate backwards for safe removal)
-    for (let i = entities.length - 1; i >= 0; i--) {
-      if (!entities[i].update()) {
-        entities.splice(i, 1);
-      } else {
-        entities[i].draw();
-      }
+    if (Date.now() >= nextSurpriseAt) {
+      nextSurpriseAt = Date.now() + 20000 + Math.random() * 28000;
+      if (Math.random() < 0.88) triggerSurprise();
     }
+
+    for (let i = entities.length - 1; i >= 0; i--) {
+      if (!entities[i].update()) entities.splice(i, 1);
+    }
+    resolveCollisions();
+    for (let i = 0; i < entities.length; i++) entities[i].draw();
   }
 
   frame();
