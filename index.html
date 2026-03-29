@@ -1003,8 +1003,10 @@
       return;
     }
 
+    const vx0 = randBetween(-14, 14);
+    const vy0 = randBetween(-14, 14);
     const body = {
-      x, y, vx, vy, rot, rotSpeed: rotation, life, decay, size, color, display,
+      x, y, vx: vx0, vy: vy0, life, decay, size, color, display,
       r: size * 0.45
     };
 
@@ -1012,14 +1014,19 @@
       _collide: true,
       body,
       update() {
-        body.vy += 0.12;
+        body.vy += 0.065;
         body.x += body.vx;
         body.y += body.vy;
-        if (body.x < body.r) { body.x = body.r; body.vx *= -0.85; }
-        if (body.x > W - body.r) { body.x = W - body.r; body.vx *= -0.85; }
-        if (body.y < body.r) { body.y = body.r; body.vy *= -0.75; }
-        if (body.y > H - body.r) { body.y = H - body.r; body.vy *= -0.75; }
-        body.rot += body.rotSpeed;
+        if (body.x < body.r) { body.x = body.r; body.vx *= -0.93; }
+        if (body.x > W - body.r) { body.x = W - body.r; body.vx *= -0.93; }
+        if (body.y < body.r) { body.y = body.r; body.vy *= -0.91; }
+        if (body.y > H - body.r) { body.y = H - body.r; body.vy *= -0.91; }
+        const sp = Math.hypot(body.vx, body.vy);
+        const vmax = 32;
+        if (sp > vmax) {
+          body.vx *= vmax / sp;
+          body.vy *= vmax / sp;
+        }
         body.life -= body.decay;
         return body.life > 0;
       },
@@ -1027,7 +1034,6 @@
         const b = body;
         ctx.save();
         ctx.translate(b.x, b.y);
-        ctx.rotate(b.rot);
         ctx.globalAlpha = b.life;
         ctx.font = `bold ${b.size}px 'Comic Sans MS', sans-serif`;
         ctx.textAlign = 'center';
@@ -1253,8 +1259,10 @@
       return;
     }
 
+    const pvx = randBetween(-12, 12);
+    const pvy = randBetween(-12, 12);
     const body = {
-      x, y, vx, vy, rot, spin, life, decay, size, color, shape,
+      x, y, vx: pvx, vy: pvy, life, decay, size, color, shape,
       r: size
     };
 
@@ -1262,14 +1270,19 @@
       _collide: true,
       body,
       update() {
-        body.vy += 0.2;
+        body.vy += 0.09;
         body.x += body.vx;
         body.y += body.vy;
-        body.rot += body.spin;
-        if (body.x < body.r) { body.x = body.r; body.vx *= -0.8; }
-        if (body.x > W - body.r) { body.x = W - body.r; body.vx *= -0.8; }
-        if (body.y > H - body.r) { body.y = H - body.r; body.vy *= -0.8; }
-        if (body.y < body.r) { body.y = body.r; body.vy *= -0.8; }
+        if (body.x < body.r) { body.x = body.r; body.vx *= -0.93; }
+        if (body.x > W - body.r) { body.x = W - body.r; body.vx *= -0.93; }
+        if (body.y > H - body.r) { body.y = H - body.r; body.vy *= -0.91; }
+        if (body.y < body.r) { body.y = body.r; body.vy *= -0.91; }
+        const sp = Math.hypot(body.vx, body.vy);
+        const vmax = 32;
+        if (sp > vmax) {
+          body.vx *= vmax / sp;
+          body.vy *= vmax / sp;
+        }
         body.life -= body.decay;
         return body.life > 0;
       },
@@ -1277,7 +1290,6 @@
         const b = body;
         ctx.save();
         ctx.translate(b.x, b.y);
-        ctx.rotate(b.rot);
         ctx.globalAlpha = b.life;
         ctx.fillStyle = b.color;
         ctx.beginPath();
@@ -1304,7 +1316,7 @@
       if (entities[i]._collide && entities[i].body) list.push(entities[i]);
       if (list.length >= 32) break;
     }
-    const rest = 0.78;
+    const rest = 0.9;
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i].body;
