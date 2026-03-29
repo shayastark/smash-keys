@@ -35,7 +35,7 @@ Host the project root on any static host (e.g. GitHub Pages, Vercel, Netlify). P
 - **Vibration** — Short buzz on each smash on supported phones (`navigator.vibrate`).
 - **Bouncy letters & shapes (calmer motion)** — Enables collision physics and **reduces** particles, trails, and surprise bursts so the screen stays a bit calmer.
 
-While playing, a small **session counter** shows how many key smashes vs touches occurred this round (not saved after Quit).
+While playing, a small **session counter** shows **keys** on desktop and **touches** on mobile (not saved after Quit).
 
 ## License
 

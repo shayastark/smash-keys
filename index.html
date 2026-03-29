@@ -478,7 +478,9 @@
   function updateStatsOverlay() {
     const el = document.getElementById('stats-overlay');
     if (!el) return;
-    el.textContent = `Keys: ${sessionKeys} · Touches: ${sessionTouches}`;
+    el.textContent = isMobile
+      ? `Touches: ${sessionTouches}`
+      : `Keys: ${sessionKeys}`;
   }
 
   // ─── Drum sounds (synthesized) ────────────────────────
