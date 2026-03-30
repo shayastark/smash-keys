@@ -247,6 +247,48 @@
     accent-color: #feca57;
   }
 
+  .toggle-row--multiline {
+    align-items: flex-start;
+  }
+
+  .toggle-row--multiline > input {
+    margin-top: 0.2em;
+  }
+
+  .toggle-row-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2em;
+    line-height: 1.25;
+  }
+
+  .toggle-row-sub {
+    font-size: 0.78em;
+    font-weight: normal;
+    color: rgba(255,255,255,0.78);
+  }
+
+  .setting-block {
+    margin-top: 0.75em;
+  }
+
+  .setting-block .toggle-row {
+    margin-top: 0;
+  }
+
+  .setting-hint {
+    font-size: clamp(0.7rem, 1.85vw, 0.9rem);
+    color: rgba(255,255,255,0.72);
+    margin: 0.35em 0 0 1.95em;
+    font-weight: normal;
+    line-height: 1.4;
+  }
+
+  .toggle-row--muted {
+    opacity: 0.72;
+    cursor: default;
+  }
+
   .volume-block {
     margin-top: 0.75em;
   }
@@ -317,9 +359,12 @@
         <button type="button" class="theme-chip" data-theme="dinosaurs" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Dinosaurs</button>
         <button type="button" class="theme-chip" data-theme="music" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Music</button>
       </div>
-      <label class="toggle-row">
+      <label class="toggle-row toggle-row--multiline">
         <input type="checkbox" id="opt-letter" />
-        <span>Letter learning (speaks letters &amp; numbers)</span>
+        <span class="toggle-row-copy">
+          Letter learning
+          <span class="toggle-row-sub">Speaks letters and number names when you press keyboard keys. Touch-only play has no keys, so this stays quiet on phones and tablets unless you use an external keyboard.</span>
+        </span>
       </label>
       <div class="volume-block">
         <span class="setting-label" id="volume-label">Volume</span>
@@ -331,10 +376,13 @@
           </label>
         </div>
       </div>
-      <label class="toggle-row">
-        <input type="checkbox" id="opt-haptics" />
-        <span>Vibration on smash (phones)</span>
-      </label>
+      <div class="setting-block">
+        <label class="toggle-row" id="opt-haptics-label" for="opt-haptics">
+          <input type="checkbox" id="opt-haptics" />
+          <span>Vibration on smash</span>
+        </label>
+        <p id="opt-haptics-hint" class="setting-hint" hidden>Not available in this browser. iPhone and iPad (including Chrome and other browsers there) do not let websites use vibration. On many Android phones this works after you turn it on.</p>
+      </div>
       <label class="toggle-row">
         <input type="checkbox" id="opt-physics" />
         <span>Bouncy letters &amp; shapes (calmer motion)</span>
@@ -362,6 +410,7 @@
 (() => {
   // ─── Device detection ─────────────────────────────────
   const isMobile = ('ontouchend' in document) && (window.innerWidth < 1024);
+  const vibrateSupported = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
 
   // ─── State ──────────────────────────────────────────────
   const canvas = document.getElementById('canvas');
@@ -387,7 +436,7 @@
     enhancedPhysics: false,
     volume: 1,
     muted: false,
-    hapticsEnabled: typeof navigator !== 'undefined' && 'vibrate' in navigator && (('ontouchend' in document) && window.innerWidth < 1024)
+    hapticsEnabled: vibrateSupported && isMobile
   };
 
   let sessionKeys = 0;
@@ -398,7 +447,9 @@
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return { ...DEFAULT_SETTINGS };
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      if (isMobile && !vibrateSupported) parsed.hapticsEnabled = false;
+      return parsed;
     } catch {
       return { ...DEFAULT_SETTINGS };
     }
@@ -468,11 +519,12 @@
   }
 
   function maybeHaptic() {
-    if (!playSettings.hapticsEnabled || !('vibrate' in navigator)) return;
+    if (!playSettings.hapticsEnabled || !vibrateSupported) return;
     const now = Date.now();
     if (now - lastHapticAt < 95) return;
     lastHapticAt = now;
-    navigator.vibrate(12);
+    // Short pulses are easy to miss on some motors; iOS has no Vibration API at all (handled in UI).
+    navigator.vibrate(42);
   }
 
   function updateStatsOverlay() {
@@ -1757,6 +1809,22 @@
   const optVolume = document.getElementById('opt-volume');
   const optMute = document.getElementById('opt-mute');
   const optHaptics = document.getElementById('opt-haptics');
+  const optHapticsLabel = document.getElementById('opt-haptics-label');
+  const optHapticsHint = document.getElementById('opt-haptics-hint');
+
+  function initHapticsUI() {
+    if (!optHaptics || !optHapticsHint || !optHapticsLabel) return;
+    if (isMobile && !vibrateSupported) {
+      optHaptics.disabled = true;
+      optHaptics.checked = false;
+      optHapticsHint.hidden = false;
+      optHapticsLabel.classList.add('toggle-row--muted');
+    } else {
+      optHaptics.disabled = false;
+      optHapticsHint.hidden = true;
+      optHapticsLabel.classList.remove('toggle-row--muted');
+    }
+  }
 
   function initThemeChipPreviews() {
     themeChips.forEach((btn) => {
@@ -1778,7 +1846,7 @@
       enhancedPhysics: optPhysics.checked,
       volume: Math.max(0, Math.min(1, parseFloat(optVolume.value) || 1)),
       muted: optMute.checked,
-      hapticsEnabled: optHaptics.checked
+      hapticsEnabled: vibrateSupported && optHaptics.checked
     };
   }
 
@@ -1790,7 +1858,11 @@
     optPhysics.checked = s.enhancedPhysics;
     optVolume.value = typeof s.volume === 'number' ? s.volume : 1;
     optMute.checked = !!s.muted;
-    optHaptics.checked = typeof s.hapticsEnabled === 'boolean' ? s.hapticsEnabled : DEFAULT_SETTINGS.hapticsEnabled;
+    if (isMobile && !vibrateSupported) {
+      optHaptics.checked = false;
+    } else {
+      optHaptics.checked = typeof s.hapticsEnabled === 'boolean' ? s.hapticsEnabled : DEFAULT_SETTINGS.hapticsEnabled;
+    }
   }
 
   themeChips.forEach((btn) => {
@@ -1824,6 +1896,7 @@
     settingsToggle.textContent = open ? 'Hide options' : 'Options';
   });
 
+  initHapticsUI();
   syncSettingsToUI(loadSettings());
   initThemeChipPreviews();
 
