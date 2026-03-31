@@ -30,9 +30,8 @@ Host the project root on any static host (e.g. GitHub Pages, Vercel, Netlify). P
 ## Settings (Options on the home screen)
 
 - **Theme** — Visual palette, emoji sets, and themed sounds (Shapes keeps the original sound mapping).
-- **Letter learning** — Speaks letters and number names with the browser’s text-to-speech (quality varies by OS).
+- **Letter learning** — Speaks letters and numbers when keys are pressed (keyboard only); uses the browser’s text-to-speech (quality varies by OS).
 - **Volume / Mute** — Master gain for all synthesized sounds; saved in the browser.
-- **Vibration** — Short buzz on each smash on supported phones (`navigator.vibrate`).
 - **Bouncy letters & shapes (calmer motion)** — Enables collision physics and **reduces** particles, trails, and surprise bursts so the screen stays a bit calmer.
 
 While playing, a small **session counter** shows **keys** on desktop and **touches** on mobile (not saved after Quit).
