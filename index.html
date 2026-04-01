@@ -411,8 +411,12 @@
     return playSettings.enhancedPhysics ? 0.4 : 1;
   }
 
+  /** Surprise bursts: fire after this many key/touch smashes, or when the timer below elapses (whichever first). */
+  const SURPRISE_EVERY_N = 50;
+  const SURPRISE_INTERVAL_MS = 60000;
+
+  let smashCountSinceSurprise = 0;
   let nextSurpriseAt = 0;
-  let surpriseBurst = 0;
 
   // ─── Adapt UI for mobile ──────────────────────────────
   if (isMobile) {
@@ -1465,16 +1469,23 @@
 
   function triggerSurprise() {
     const th = themeDef(playTheme);
-    const rawBursts = 10 + Math.floor(Math.random() * 9);
-    const bursts = Math.max(4, Math.floor(rawBursts * motionCalmFactor()));
+    const rawBursts = 16 + Math.floor(Math.random() * 14);
+    const calm = motionCalmFactor();
+    const bursts = Math.max(10, Math.floor(rawBursts * Math.max(0.55, calm)));
     for (let k = 0; k < bursts; k++) {
       const sx = randBetween(W * 0.05, W * 0.95);
       const sy = randBetween(H * 0.1, H * 0.9);
-      spawnParticles(sx, sy, Math.floor(randBetween(10, 28)));
-      if (Math.random() < th.starChance * motionCalmFactor()) spawnStar(sx, sy);
-      if (Math.random() < 0.45 * motionCalmFactor()) spawnEmoji(sx, sy);
+      spawnParticles(sx, sy, Math.floor(randBetween(14, 36)));
+      if (Math.random() < th.starChance * Math.max(0.5, calm)) spawnStar(sx, sy);
+      if (Math.random() < 0.55 * Math.max(0.45, calm)) spawnEmoji(sx, sy);
     }
     bumpThemeHue('surprise');
+  }
+
+  function fireSurpriseCycle() {
+    triggerSurprise();
+    smashCountSinceSurprise = 0;
+    nextSurpriseAt = Date.now() + SURPRISE_INTERVAL_MS;
   }
 
   // ─── Main keystroke handler (desktop) ─────────────────
@@ -1518,6 +1529,8 @@
     playSoundForTheme(e, playTheme);
 
     sessionKeys += 1;
+    smashCountSinceSurprise += 1;
+    if (smashCountSinceSurprise >= SURPRISE_EVERY_N) fireSurpriseCycle();
     updateStatsOverlay();
   }
 
@@ -1577,6 +1590,8 @@
       playTouchSoundForTheme(x, y, playTheme);
 
       sessionTouches += 1;
+      smashCountSinceSurprise += 1;
+      if (smashCountSinceSurprise >= SURPRISE_EVERY_N) fireSurpriseCycle();
       updateStatsOverlay();
     }
   }
@@ -1673,6 +1688,7 @@
     hideExit();
     entities.length = 0;
     activeTouches.clear();
+    smashCountSinceSurprise = 0;
     nextSurpriseAt = 0;
     if ('speechSynthesis' in window) speechSynthesis.cancel();
 
@@ -1817,7 +1833,8 @@
     bgTargetHue = th0.bgHueBase;
     bgSat = th0.bgSat;
     bgLight = th0.bgLight;
-    nextSurpriseAt = Date.now() + 18000 + Math.random() * 24000;
+    smashCountSinceSurprise = 0;
+    nextSurpriseAt = Date.now() + SURPRISE_INTERVAL_MS;
 
     sessionKeys = 0;
     sessionTouches = 0;
@@ -1934,11 +1951,8 @@
     ctx.fillStyle = `hsl(${bgHue}, ${bgSat}%, ${bgLight}%)`;
     ctx.fillRect(0, 0, W, H);
 
-    if (Date.now() >= nextSurpriseAt) {
-      const baseDelay = 20000 + Math.random() * 28000;
-      const extraBouncy = playSettings.enhancedPhysics ? 24000 : 0;
-      nextSurpriseAt = Date.now() + baseDelay + extraBouncy;
-      if (Math.random() < 0.88) triggerSurprise();
+    if (nextSurpriseAt > 0 && Date.now() >= nextSurpriseAt) {
+      fireSurpriseCycle();
     }
 
     for (let i = entities.length - 1; i >= 0; i--) {
