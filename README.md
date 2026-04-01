@@ -17,6 +17,8 @@ Open the URL shown (e.g. `http://localhost:3000`).
 
 Host the project root on any static host (e.g. GitHub Pages, Vercel, Netlify). Point the site root at the folder that contains `index.html` and `sw.js`.
 
+**Link previews (Open Graph):** `index.html` includes `og:*` and Twitter Card tags pointing at `og-image.jpg`, with `canonical` / `og:url` set to `https://shayastark.github.io/smash-keys/`. If you use another domain (e.g. Vercel or a custom URL), update those URLs and the `twitter:image` / `og:image` values to match your live origin so shared links show the image correctly.
+
 ## iOS / Safari
 
 - **Sound:** Safari may keep the Web Audio context **suspended** until there is a **user gesture**. The app resumes audio on Start and also tries once on the first pointer/touch after play begins. If you still hear nothing, tap the screen or press a key once.

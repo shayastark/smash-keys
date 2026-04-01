@@ -1,5 +1,5 @@
-const CACHE_NAME = 'smash-keys-v3';
-const ASSETS = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const CACHE_NAME = 'smash-keys-v4';
+const ASSETS = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/og-image.jpg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
