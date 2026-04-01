@@ -17,7 +17,7 @@ Open the URL shown (e.g. `http://localhost:3000`).
 
 Host the project root on any static host (e.g. GitHub Pages, Vercel, Netlify). Point the site root at the folder that contains `index.html` and `sw.js`.
 
-**Link previews (Open Graph):** `index.html` includes `og:*` and Twitter Card tags pointing at `og-image.jpg`, with `canonical` / `og:url` set to `https://shayastark.github.io/smash-keys/`. If you use another domain (e.g. Vercel or a custom URL), update those URLs and the `twitter:image` / `og:image` values to match your live origin so shared links show the image correctly.
+**Link previews (Open Graph):** `index.html` includes `og:*` and Twitter Card tags pointing at `og-image.jpg`, with `canonical` / `og:url` / `og:image` set to the **deployed origin** (currently `https://smash-keys.vercel.app/`). If you change host or add a custom domain, update those same absolute URLs so shared links resolve the image.
 
 ## iOS / Safari
 
