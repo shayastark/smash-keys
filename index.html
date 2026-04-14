@@ -1968,7 +1968,8 @@
     const th = themeDef(playTheme);
     const calm = motionCalmFactor();
 
-    playSurpriseFanfare();
+    // Groove already layers drums + smashes; skip fanfare to avoid overloading the audio graph
+    if (playSettings.sessionMode !== 'groove') playSurpriseFanfare();
     spawnSurpriseFlash();
     bumpThemeHue('surprise');
 
