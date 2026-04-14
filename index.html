@@ -289,6 +289,43 @@
     accent-color: #feca57;
   }
 
+  #opt-groove-bpm,
+  #opt-groove-mix {
+    flex: 1;
+    min-width: 120px;
+    max-width: 240px;
+    accent-color: #feca57;
+  }
+
+  .playmode-chips {
+    margin-bottom: 0.35em;
+  }
+
+  .setting-hint.playmode-hint {
+    font-size: clamp(0.7rem, 1.85vw, 0.92rem);
+    color: rgba(255,255,255,0.78);
+    margin: 0.35em 0 0.6em;
+    font-weight: normal;
+    line-height: 1.35;
+    max-width: 48em;
+  }
+
+  .groove-options {
+    margin-top: 0.5em;
+    margin-bottom: 0.35em;
+    padding: 0.65em 0.75em;
+    border-radius: 12px;
+    background: rgba(0,0,0,0.2);
+  }
+
+  .groove-options .setting-label {
+    margin-top: 0.45em;
+  }
+
+  .groove-options .setting-label:first-child {
+    margin-top: 0;
+  }
+
   .theme-chip-preview {
     width: 2.35em;
     height: 0.52em;
@@ -332,6 +369,23 @@
         <button type="button" class="theme-chip" data-theme="jungle" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Jungle</button>
         <button type="button" class="theme-chip" data-theme="dinosaurs" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Dinosaurs</button>
         <button type="button" class="theme-chip" data-theme="music" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Music</button>
+      </div>
+      <span class="setting-label" id="playmode-label">Play mode</span>
+      <p class="setting-hint playmode-hint">Classic is the original sandbox. Groove adds a soft drum loop (tempo &amp; strength below). Jam maps keys to notes that always blend well together.</p>
+      <div class="theme-chips playmode-chips" role="radiogroup" aria-labelledby="playmode-label">
+        <button type="button" class="theme-chip" data-session-mode="classic" aria-checked="true" role="radio">Classic</button>
+        <button type="button" class="theme-chip" data-session-mode="groove" aria-checked="false" role="radio">Groove</button>
+        <button type="button" class="theme-chip" data-session-mode="jam" aria-checked="false" role="radio">Jam</button>
+      </div>
+      <div id="groove-options" class="groove-options" hidden>
+        <span class="setting-label" id="groove-bpm-label">Beat tempo (BPM)</span>
+        <div class="volume-row">
+          <input type="range" id="opt-groove-bpm" min="70" max="140" step="1" value="100" aria-labelledby="groove-bpm-label" />
+        </div>
+        <span class="setting-label" id="groove-mix-label">Beat strength</span>
+        <div class="volume-row">
+          <input type="range" id="opt-groove-mix" min="0" max="1" step="0.01" value="0.42" aria-labelledby="groove-mix-label" />
+        </div>
       </div>
       <label class="toggle-row">
         <input type="checkbox" id="opt-letter" />
@@ -395,6 +449,9 @@
   const STORAGE_KEY = 'smashKeys.v1';
   const DEFAULT_SETTINGS = {
     theme: 'shapes',
+    sessionMode: 'classic',
+    grooveBpm: 100,
+    grooveMix: 0.42,
     letterLearning: false,
     enhancedPhysics: false,
     volume: 1,
@@ -433,6 +490,9 @@
 
   let smashCountSinceSurprise = 0;
   let nextSurpriseAt = 0;
+
+  let grooveTimeoutId = null;
+  let grooveBeatStep = 0;
 
   // ─── Adapt UI for mobile ──────────────────────────────
   if (isMobile) {
@@ -579,6 +639,132 @@
     noise.stop(t + 0.08);
   }
 
+
+  function grooveDynamicsScale() {
+    const m = typeof playSettings.grooveMix === 'number' ? playSettings.grooveMix : 0.42;
+    return Math.max(0.08, Math.min(1, m)) * 0.48;
+  }
+
+  function playGrooveKick() {
+    if (!audioCtx) return;
+    const g = grooveDynamicsScale();
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.exponentialRampToValueAtTime(30, t + 0.15);
+    oscGain.gain.setValueAtTime(0.8 * g, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    osc.connect(oscGain);
+    oscGain.connect(getAudioOut());
+    osc.start(t);
+    osc.stop(t + 0.3);
+    const click = audioCtx.createOscillator();
+    const clickGain = audioCtx.createGain();
+    click.type = 'triangle';
+    click.frequency.setValueAtTime(300, t);
+    click.frequency.exponentialRampToValueAtTime(60, t + 0.04);
+    clickGain.gain.setValueAtTime(0.5 * g, t);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    click.connect(clickGain);
+    clickGain.connect(getAudioOut());
+    click.start(t);
+    click.stop(t + 0.06);
+  }
+
+  function playGrooveSnare(variant) {
+    if (!audioCtx) return;
+    const g = grooveDynamicsScale();
+    const t = audioCtx.currentTime;
+    const bufferSize = audioCtx.sampleRate * 0.15;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = variant === 'shift' ? 5000 : 3500;
+    filter.Q.value = variant === 'shift' ? 0.8 : 1.2;
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime((variant === 'shift' ? 0.4 : 0.35) * g, t);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(getAudioOut());
+    noise.start(t);
+    noise.stop(t + 0.15);
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime((variant === 'shift' ? 220 : 180), t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.08);
+    oscGain.gain.setValueAtTime(0.35 * g, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    osc.connect(oscGain);
+    oscGain.connect(getAudioOut());
+    osc.start(t);
+    osc.stop(t + 0.1);
+  }
+
+  function playGrooveHat() {
+    if (!audioCtx) return;
+    const g = grooveDynamicsScale();
+    const t = audioCtx.currentTime;
+    const bufferSize = audioCtx.sampleRate * 0.08;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const hpFilter = audioCtx.createBiquadFilter();
+    hpFilter.type = 'highpass';
+    hpFilter.frequency.value = 7000;
+    const bpFilter = audioCtx.createBiquadFilter();
+    bpFilter.type = 'bandpass';
+    bpFilter.frequency.value = 10000;
+    bpFilter.Q.value = 1.5;
+    const gn = audioCtx.createGain();
+    gn.gain.setValueAtTime(0.25 * g, t);
+    gn.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    noise.connect(hpFilter);
+    hpFilter.connect(bpFilter);
+    bpFilter.connect(gn);
+    gn.connect(getAudioOut());
+    noise.start(t);
+    noise.stop(t + 0.08);
+  }
+
+  function stopGrooveLoop() {
+    if (grooveTimeoutId !== null) {
+      clearTimeout(grooveTimeoutId);
+      grooveTimeoutId = null;
+    }
+  }
+
+  function scheduleGrooveBeat() {
+    grooveTimeoutId = null;
+    if (!active || playSettings.sessionMode !== 'groove') return;
+    const bpm = typeof playSettings.grooveBpm === 'number' ? playSettings.grooveBpm : 100;
+    const periodMs = 60000 / Math.max(55, Math.min(175, bpm));
+    const step = grooveBeatStep % 4;
+    if (step === 0) playGrooveKick();
+    else if (step === 1) playGrooveSnare('shift');
+    else if (step === 2) playGrooveHat();
+    else playGrooveSnare('enter');
+    grooveBeatStep++;
+    grooveTimeoutId = setTimeout(scheduleGrooveBeat, periodMs);
+  }
+
+  function startGrooveLoop() {
+    stopGrooveLoop();
+    grooveBeatStep = 0;
+    if (playSettings.sessionMode !== 'groove') return;
+    scheduleGrooveBeat();
+  }
+
+
   // ─── Synth sounds for 0-9 ─────────────────────────────
 
   const SYNTH_PATCHES = [
@@ -636,8 +822,61 @@
     1046.50, 1174.66, 1318.51, 1567.98, 1760.00
   ];
 
+  /** C major pentatonic across two octaves — Jam mode maps letters here so melodies stay pleasant */
+  const JAM_PENT = [
+    261.63, 293.66, 329.63, 392.0, 440.0,
+    523.25, 587.33, 659.25, 783.99, 880.0
+  ];
+
+  function playJamMelody(key, theme) {
+    if (!audioCtx) return;
+    const c = key.length === 1 ? key.toLowerCase().charCodeAt(0) : 0;
+    if (c < 97 || c > 122) return;
+    const freq = JAM_PENT[(c - 97) % JAM_PENT.length];
+    const t0 = audioCtx.currentTime;
+    if (theme === 'shapes') {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.17, t0);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.42);
+      osc.connect(gain);
+      gain.connect(getAudioOut());
+      osc.start(t0);
+      osc.stop(t0 + 0.45);
+      return;
+    }
+    const shift = { space: 2, ocean: 1, jungle: 3, dinosaurs: 1, music: 2 }[theme] || 0;
+    const f = JAM_PENT[(c - 97 + shift) % JAM_PENT.length];
+    const types = theme === 'music'
+      ? ['square', 'sawtooth', 'triangle']
+      : theme === 'ocean'
+        ? ['sine', 'triangle', 'sine']
+        : ['sine', 'triangle', 'square'];
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = types[c % types.length];
+    osc.frequency.setValueAtTime(f, t0);
+    osc.frequency.exponentialRampToValueAtTime(f * (theme === 'dinosaurs' ? 0.9 : 0.95), t0 + 0.38);
+    const g = theme === 'space' ? 0.14 : 0.16;
+    gain.gain.setValueAtTime(g, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.42);
+    osc.connect(gain);
+    gain.connect(getAudioOut());
+    osc.start(t0);
+    osc.stop(t0 + 0.45);
+  }
+
   function playMelodicNote(key) {
     if (!audioCtx) return;
+    if (playSettings.sessionMode === 'jam') {
+      const c = key.length === 1 ? key.toLowerCase().charCodeAt(0) : 0;
+      if (c >= 97 && c <= 122) {
+        playJamMelody(key, 'shapes');
+        return;
+      }
+    }
     const code = key.charCodeAt(0) || 0;
     const freq = NOTE_FREQS[code % NOTE_FREQS.length];
     const osc = audioCtx.createOscillator();
@@ -664,9 +903,14 @@
 
     // Top half = melodic, bottom half = percussive
     if (normalY < 0.5) {
-      // Melodic: map x to pentatonic frequency range
-      const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
-      const freq = NOTE_FREQS[Math.min(freqIndex, NOTE_FREQS.length - 1)];
+      let freq;
+      if (playSettings.sessionMode === 'jam') {
+        const ji = Math.floor(normalX * JAM_PENT.length) % JAM_PENT.length;
+        freq = JAM_PENT[ji];
+      } else {
+        const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
+        freq = NOTE_FREQS[Math.min(freqIndex, NOTE_FREQS.length - 1)];
+      }
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       // Vary timbre based on vertical position within top half
@@ -870,6 +1114,13 @@
   }
 
   function playMelodicNoteThemed(key, theme) {
+    if (playSettings.sessionMode === 'jam') {
+      const c = key.length === 1 ? key.toLowerCase().charCodeAt(0) : 0;
+      if (c >= 97 && c <= 122) {
+        playJamMelody(key, theme);
+        return;
+      }
+    }
     if (theme === 'shapes') {
       playMelodicNote(key);
       return;
@@ -951,9 +1202,16 @@
     const rowShift = { space: 9, ocean: 3, jungle: 11, dinosaurs: 2, music: 6 }[theme] || 0;
 
     if (normalY < 0.5) {
+      let freq;
+      if (playSettings.sessionMode === 'jam') {
+        const freqIndex = Math.floor(normalX * JAM_PENT.length);
+        const idx = (freqIndex + rowShift) % JAM_PENT.length;
+        freq = JAM_PENT[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
+      } else {
       const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
       const idx = Math.min((freqIndex + rowShift) % NOTE_FREQS.length, NOTE_FREQS.length - 1);
-      const freq = NOTE_FREQS[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
+      freq = NOTE_FREQS[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
+      }
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       const types = theme === 'ocean' ? ['sine', 'triangle', 'sine'] : ['sine', 'triangle', 'square'];
@@ -1869,6 +2127,7 @@
     smashCountSinceSurprise = 0;
     nextSurpriseAt = 0;
     if ('speechSynthesis' in window) speechSynthesis.cancel();
+    stopGrooveLoop();
 
     const statsEl = document.getElementById('stats-overlay');
     if (statsEl) {
@@ -1929,11 +2188,21 @@
   // ─── Settings UI ───────────────────────────────────────
   const settingsPanel = document.getElementById('settings-panel');
   const settingsToggle = document.getElementById('settings-toggle');
-  const themeChips = document.querySelectorAll('.theme-chip');
+  const themeChips = document.querySelectorAll('.theme-chip[data-theme]');
   const optLetter = document.getElementById('opt-letter');
   const optPhysics = document.getElementById('opt-physics');
   const optVolume = document.getElementById('opt-volume');
   const optMute = document.getElementById('opt-mute');
+  const sessionModeChips = document.querySelectorAll('[data-session-mode]');
+  const grooveOptionsEl = document.getElementById('groove-options');
+  const optGrooveBpm = document.getElementById('opt-groove-bpm');
+  const optGrooveMix = document.getElementById('opt-groove-mix');
+
+  function updateGroovePanelVisibility() {
+    if (!grooveOptionsEl) return;
+    const sel = [...sessionModeChips].find((b) => b.getAttribute('aria-checked') === 'true');
+    grooveOptionsEl.hidden = !sel || sel.dataset.sessionMode !== 'groove';
+  }
 
   function initThemeChipPreviews() {
     themeChips.forEach((btn) => {
@@ -1949,8 +2218,19 @@
   function readSettingsFromUI() {
     const sel = [...themeChips].find((b) => b.getAttribute('aria-checked') === 'true');
     const theme = sel && sel.dataset.theme ? sel.dataset.theme : 'shapes';
+    const sm = [...sessionModeChips].find((b) => b.getAttribute('aria-checked') === 'true');
+    const sessionMode = sm && sm.dataset.sessionMode ? sm.dataset.sessionMode : 'classic';
+    const grooveBpm = optGrooveBpm
+      ? Math.max(55, Math.min(175, parseInt(optGrooveBpm.value, 10) || 100))
+      : 100;
+    const grooveMix = optGrooveMix
+      ? Math.max(0, Math.min(1, parseFloat(optGrooveMix.value) || 0.42))
+      : 0.42;
     return {
       theme,
+      sessionMode,
+      grooveBpm,
+      grooveMix,
       letterLearning: optLetter.checked,
       enhancedPhysics: optPhysics.checked,
       volume: Math.max(0, Math.min(1, parseFloat(optVolume.value) || 1)),
@@ -1962,6 +2242,17 @@
     themeChips.forEach((btn) => {
       btn.setAttribute('aria-checked', btn.dataset.theme === s.theme ? 'true' : 'false');
     });
+    const mode = typeof s.sessionMode === 'string' ? s.sessionMode : 'classic';
+    sessionModeChips.forEach((btn) => {
+      btn.setAttribute('aria-checked', btn.dataset.sessionMode === mode ? 'true' : 'false');
+    });
+    if (optGrooveBpm) {
+      optGrooveBpm.value = typeof s.grooveBpm === 'number' ? s.grooveBpm : 100;
+    }
+    if (optGrooveMix) {
+      optGrooveMix.value = typeof s.grooveMix === 'number' ? s.grooveMix : 0.42;
+    }
+    updateGroovePanelVisibility();
     optLetter.checked = s.letterLearning;
     optPhysics.checked = s.enhancedPhysics;
     optVolume.value = typeof s.volume === 'number' ? s.volume : 1;
@@ -1972,6 +2263,15 @@
     btn.addEventListener('click', () => {
       themeChips.forEach((b) => b.setAttribute('aria-checked', 'false'));
       btn.setAttribute('aria-checked', 'true');
+      saveSettings(readSettingsFromUI());
+    });
+  });
+
+  sessionModeChips.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      sessionModeChips.forEach((b) => b.setAttribute('aria-checked', 'false'));
+      btn.setAttribute('aria-checked', 'true');
+      updateGroovePanelVisibility();
       saveSettings(readSettingsFromUI());
     });
   });
@@ -1990,6 +2290,25 @@
     saveSettings(s);
     applyMasterVolume();
   });
+
+  if (optGrooveBpm) {
+    optGrooveBpm.addEventListener('input', () => {
+      const s = readSettingsFromUI();
+      playSettings.grooveBpm = s.grooveBpm;
+      saveSettings(s);
+      if (active && playSettings.sessionMode === 'groove') {
+        stopGrooveLoop();
+        startGrooveLoop();
+      }
+    });
+  }
+  if (optGrooveMix) {
+    optGrooveMix.addEventListener('input', () => {
+      const s = readSettingsFromUI();
+      playSettings.grooveMix = s.grooveMix;
+      saveSettings(s);
+    });
+  }
 
   settingsToggle.addEventListener('click', () => {
     const open = settingsPanel.hidden;
@@ -2025,6 +2344,7 @@
 
     initAudio();
     attachOneShotAudioResume();
+    startGrooveLoop();
     active = true;
     document.getElementById('start-screen').style.display = 'none';
     document.body.style.cursor = 'none';
@@ -2105,8 +2425,11 @@
   // If visibility changes (e.g. Mission Control, app switcher), recapture
   // when the page becomes visible again
   document.addEventListener('visibilitychange', () => {
-    if (active && document.visibilityState === 'visible') {
+    if (document.visibilityState === 'hidden') {
+      stopGrooveLoop();
+    } else if (active && document.visibilityState === 'visible') {
       requestWakeLock();
+      if (playSettings.sessionMode === 'groove') startGrooveLoop();
       if (!exitShowing) {
         window.focus();
         if (!document.fullscreenElement) {
