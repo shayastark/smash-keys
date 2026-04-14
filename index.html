@@ -919,12 +919,23 @@
     1046.50, 1174.66, 1318.51, 1567.98, 1760.00
   ];
 
-  /** C major pentatonic across two octaves — Jam mode maps letters here so melodies stay pleasant */
-  const JAM_PENT = [
-    261.63, 293.66, 329.63, 392.0, 440.0,
-    523.25, 587.33, 659.25, 783.99, 880.0
-  ];
-
+  /**
+   * Jam mode: one distinct pitch per letter (a–z) by walking C major diatonic steps upward,
+   * so keys don’t repeat every few letters like the old 10-note pentatonic bucket.
+   */
+  const JAM_MAJOR_STEPS = [0, 2, 4, 5, 7, 9, 11];
+  const JAM_LETTER_FREQ = (() => {
+    const out = [];
+    for (let i = 0; i < 26; i++) {
+      const oct = Math.floor(i / 7);
+      const deg = i % 7;
+      const midi = 60 + oct * 12 + JAM_MAJOR_STEPS[deg];
+      out.push(440 * Math.pow(2, (midi - 69) / 12));
+    }
+    return out;
+  })();
+  /** Keyboard a–z: rotate which pitch “a” starts on per theme (same idea as before, wider palette). */
+  const JAM_KEY_ROT = { space: 2, ocean: 1, jungle: 3, dinosaurs: 1, music: 2 };
   /** Bright marimba / xylophone voice — clearly different from Classic’s mixed synth keys */
   function playJamMarimba(freq, theme) {
     if (!audioCtx) return;
@@ -987,8 +998,8 @@
     if (!audioCtx) return;
     const c = key.length === 1 ? key.toLowerCase().charCodeAt(0) : 0;
     if (c < 97 || c > 122) return;
-    const shift = theme === 'shapes' ? 0 : ({ space: 2, ocean: 1, jungle: 3, dinosaurs: 1, music: 2 }[theme] || 0);
-    const f = JAM_PENT[(c - 97 + shift) % JAM_PENT.length];
+    const shift = theme === 'shapes' ? 0 : (JAM_KEY_ROT[theme] || 0);
+    const f = JAM_LETTER_FREQ[(c - 97 + shift) % 26];
     playJamMarimba(f, theme);
   }
 
@@ -1028,8 +1039,8 @@
     // Top half = melodic, bottom half = percussive
     if (normalY < 0.5) {
       if (playSettings.sessionMode === 'jam') {
-        const ji = Math.floor(normalX * JAM_PENT.length) % JAM_PENT.length;
-        playJamMarimba(JAM_PENT[ji], 'shapes');
+        const slot = Math.min(25, Math.floor(normalX * 26 * 0.9999));
+        playJamMarimba(JAM_LETTER_FREQ[slot], 'shapes');
         return;
       }
       const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
@@ -1325,9 +1336,9 @@
 
     if (normalY < 0.5) {
       if (playSettings.sessionMode === 'jam') {
-        const freqIndex = Math.floor(normalX * JAM_PENT.length);
-        const idx = (freqIndex + rowShift) % JAM_PENT.length;
-        const freq = JAM_PENT[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
+        const slot = Math.min(25, Math.floor(normalX * 26 * 0.9999));
+        const idx = (slot + rowShift) % 26;
+        const freq = JAM_LETTER_FREQ[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
         playJamMarimba(freq, theme);
         return;
       }
@@ -2366,7 +2377,7 @@
     const copy = {
       classic: 'Original Smash Keys sounds and colors.',
       groove: 'Adds a steady beat behind your smashes. Adjust tempo and strength below.',
-      jam: 'Letter keys and the top half of the screen use a bright xylophone sound on “sweet” notes that always fit together.'
+      jam: 'Letter keys and the top half of the screen use a bright xylophone: each letter has its own note in a simple major scale.'
     };
     playmodeHintText.textContent = copy[mode] || copy.classic;
   }
