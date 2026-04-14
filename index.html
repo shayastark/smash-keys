@@ -460,12 +460,21 @@
   /** Smooth visual limiter: fewer new particles when many entities are alive (avoids CPU/GPU spikes). */
   const VISUAL_SOFT_CAP = 260;
   const VISUAL_HARD_CAP = 540;
+  /** Jam encourages fast melodic play — ramp down a bit earlier so visuals stay smooth. */
+  const VISUAL_SOFT_CAP_JAM = 220;
+  const VISUAL_HARD_CAP_JAM = 480;
+
+  function isJamSession() {
+    return playSettings.sessionMode === 'jam';
+  }
 
   function visualLoadScale() {
     const n = entities.length;
-    if (n <= VISUAL_SOFT_CAP) return 1;
-    if (n >= VISUAL_HARD_CAP) return 0.06;
-    const t = (n - VISUAL_SOFT_CAP) / (VISUAL_HARD_CAP - VISUAL_SOFT_CAP);
+    const soft = isJamSession() ? VISUAL_SOFT_CAP_JAM : VISUAL_SOFT_CAP;
+    const hard = isJamSession() ? VISUAL_HARD_CAP_JAM : VISUAL_HARD_CAP;
+    if (n <= soft) return 1;
+    if (n >= hard) return 0.06;
+    const t = (n - soft) / (hard - soft);
     return 1 - t * 0.88;
   }
 
@@ -475,6 +484,22 @@
     if (s >= 0.9) return true;
     if (s <= 0.1) return Math.random() < 0.12;
     return Math.random() < 0.35 + s * 0.6;
+  }
+
+  /** Surprise fires many particles at once; scale uses pre-spawn count — this tightens bursts when already busy. */
+  let surpriseSurgeScale = 1;
+  const surpriseSalvoQueue = [];
+
+  function surpriseSalvosPerFrame() {
+    return isJamSession() ? 1 : 2;
+  }
+
+  function computeSurpriseSurgeScale() {
+    const soft = isJamSession() ? VISUAL_SOFT_CAP_JAM : VISUAL_SOFT_CAP;
+    const pad = isJamSession() ? 62 : 85;
+    const denom = isJamSession() ? 278 : 295;
+    const budget = soft + pad - entities.length;
+    return Math.min(1, Math.max(0.28, budget / denom));
   }
 
   let bgHue = 220;
@@ -1751,8 +1776,9 @@
 
   function spawnSurpriseHeavyBurst(x, y, count) {
     const m = motionCalmFactor();
-    const n = Math.floor(count * m * visualLoadScale());
+    const n = Math.floor(count * m * visualLoadScale() * surpriseSurgeScale);
     if (n < 1) return;
+    const loadFadeBoost = 1 + 0.24 * (1 - visualLoadScale());
     for (let i = 0; i < n; i++) {
       const angle = (Math.PI * 2 * i) / n + randBetween(-0.35, 0.35);
       const speed = randBetween(6, 22);
@@ -1761,7 +1787,7 @@
       const radius = randBetween(8, 22);
       const color = randColor();
       let life = 1;
-      const decay = randBetween(0.0035, 0.007);
+      const decay = randBetween(0.0035, 0.007) * loadFadeBoost;
       let px = x, py = y;
       entities.push({
         update() {
@@ -1993,10 +2019,20 @@
     }
   }
 
+  function processOneSurpriseSalvo() {
+    const job = surpriseSalvoQueue.shift();
+    if (!job) return;
+    spawnSurpriseHeavyBurst(job.sx, job.sy, Math.floor(randBetween(32, 52) * Math.max(0.5, job.calm)));
+    spawnSurpriseBigStar(job.sx, job.sy);
+    if (Math.random() < 0.72 * Math.max(0.45, job.calm)) spawnEmoji(job.sx, job.sy);
+    if (Math.random() < job.starChance * 1.1) spawnStar(job.sx, job.sy);
+  }
+
   function triggerSurprise() {
     const th = themeDef(playTheme);
     const calm = motionCalmFactor();
     const v = visualLoadScale();
+    surpriseSurgeScale = computeSurpriseSurgeScale();
 
     // Groove already layers drums + smashes; skip fanfare to avoid overloading the audio graph
     if (playSettings.sessionMode !== 'groove') playSurpriseFanfare();
@@ -2018,13 +2054,14 @@
 
     const baseSalvos = Math.max(6, Math.floor(9 * Math.max(0.5, calm)));
     const salvos = Math.max(3, Math.floor(baseSalvos * Math.max(0.35, v)));
+    surpriseSalvoQueue.length = 0;
     for (let k = 0; k < salvos; k++) {
-      const sx = randBetween(W * 0.1, W * 0.9);
-      const sy = randBetween(H * 0.12, H * 0.88);
-      spawnSurpriseHeavyBurst(sx, sy, Math.floor(randBetween(32, 52) * Math.max(0.5, calm)));
-      spawnSurpriseBigStar(sx, sy);
-      if (Math.random() < 0.72 * Math.max(0.45, calm)) spawnEmoji(sx, sy);
-      if (Math.random() < th.starChance * 1.1) spawnStar(sx, sy);
+      surpriseSalvoQueue.push({
+        sx: randBetween(W * 0.1, W * 0.9),
+        sy: randBetween(H * 0.12, H * 0.88),
+        calm,
+        starChance: th.starChance
+      });
     }
   }
 
@@ -2161,7 +2198,8 @@
         const dist = Math.sqrt(dx * dx + dy * dy);
         const stepDiv = playSettings.enhancedPhysics ? 20 : 10;
         let steps = Math.max(1, Math.floor(dist / stepDiv));
-        if (entities.length > 200) {
+        const trailThresh = isJamSession() ? 175 : 200;
+        if (entities.length > trailThresh) {
           steps = Math.max(1, Math.ceil(steps * Math.max(0.22, visualLoadScale())));
         }
 
@@ -2237,6 +2275,8 @@
     document.body.classList.remove('game-active');
     hideExit();
     entities.length = 0;
+    surpriseSalvoQueue.length = 0;
+    surpriseSurgeScale = 1;
     activeTouches.clear();
     smashCountSinceSurprise = 0;
     nextSurpriseAt = 0;
@@ -2585,6 +2625,11 @@
     if (nextSurpriseAt > 0 && Date.now() >= nextSurpriseAt) {
       fireSurpriseCycle();
     }
+
+    for (let k = 0; k < surpriseSalvosPerFrame() && surpriseSalvoQueue.length; k++) {
+      processOneSurpriseSalvo();
+    }
+    if (!surpriseSalvoQueue.length) surpriseSurgeScale = 1;
 
     for (let i = entities.length - 1; i >= 0; i--) {
       if (!entities[i].update()) entities.splice(i, 1);
