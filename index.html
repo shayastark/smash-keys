@@ -30,14 +30,27 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    overflow: hidden;
     background: #111;
     font-family: 'Comic Sans MS', 'Chalkboard SE', 'Arial Rounded MT Bold', sans-serif;
     user-select: none;
     -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Menu can scroll on small screens; lock scroll during play */
+  body:not(.game-active) {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    min-height: 100%;
+    cursor: default;
+    touch-action: pan-y;
+  }
+
+  body.game-active {
+    overflow: hidden;
     cursor: none;
     touch-action: none;
-    -webkit-touch-callout: none;
   }
 
   #start-screen {
@@ -46,7 +59,11 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    padding: min(4vh, 2rem) 0.75rem min(3rem, 5vh);
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     z-index: 1000;
     cursor: default;
@@ -302,12 +319,13 @@
   }
 
   .setting-hint.playmode-hint {
-    font-size: clamp(0.7rem, 1.85vw, 0.92rem);
-    color: rgba(255,255,255,0.78);
-    margin: 0.35em 0 0.6em;
+    font-size: clamp(0.62rem, 1.55vw, 0.78rem);
+    color: rgba(255,255,255,0.82);
+    margin: 0.25em 0 0.55em;
     font-weight: normal;
-    line-height: 1.35;
-    max-width: 48em;
+    line-height: 1.3;
+    max-width: 42em;
+    min-height: 2.6em;
   }
 
   .groove-options {
@@ -371,7 +389,7 @@
         <button type="button" class="theme-chip" data-theme="music" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Music</button>
       </div>
       <span class="setting-label" id="playmode-label">Play mode</span>
-      <p class="setting-hint playmode-hint">Classic is the original sandbox. Groove adds a soft drum loop (tempo &amp; strength below). Jam maps keys to notes that always blend well together.</p>
+      <p id="playmode-hint-text" class="setting-hint playmode-hint" aria-live="polite"></p>
       <div class="theme-chips playmode-chips" role="radiogroup" aria-labelledby="playmode-label">
         <button type="button" class="theme-chip" data-session-mode="classic" aria-checked="true" role="radio">Classic</button>
         <button type="button" class="theme-chip" data-session-mode="groove" aria-checked="false" role="radio">Groove</button>
@@ -384,7 +402,7 @@
         </div>
         <span class="setting-label" id="groove-mix-label">Beat strength</span>
         <div class="volume-row">
-          <input type="range" id="opt-groove-mix" min="0" max="1" step="0.01" value="0.42" aria-labelledby="groove-mix-label" />
+          <input type="range" id="opt-groove-mix" min="0" max="1" step="0.01" value="0.55" aria-labelledby="groove-mix-label" />
         </div>
       </div>
       <label class="toggle-row">
@@ -451,7 +469,7 @@
     theme: 'shapes',
     sessionMode: 'classic',
     grooveBpm: 100,
-    grooveMix: 0.42,
+    grooveMix: 0.55,
     letterLearning: false,
     enhancedPhysics: false,
     volume: 1,
@@ -641,8 +659,8 @@
 
 
   function grooveDynamicsScale() {
-    const m = typeof playSettings.grooveMix === 'number' ? playSettings.grooveMix : 0.42;
-    return Math.max(0.08, Math.min(1, m)) * 0.48;
+    const m = typeof playSettings.grooveMix === 'number' ? playSettings.grooveMix : 0.55;
+    return Math.max(0.06, Math.min(1, m)) * 0.72;
   }
 
   function playGrooveKick() {
@@ -736,6 +754,35 @@
     noise.stop(t + 0.08);
   }
 
+  /** Quiet 8th-note hats so the groove feels like a continuous loop, not isolated hits */
+  function playGrooveSoftHat() {
+    if (!audioCtx) return;
+    const g = grooveDynamicsScale() * 0.38;
+    const t = audioCtx.currentTime;
+    const bufferSize = audioCtx.sampleRate * 0.05;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const hpFilter = audioCtx.createBiquadFilter();
+    hpFilter.type = 'highpass';
+    hpFilter.frequency.value = 5500;
+    const bpFilter = audioCtx.createBiquadFilter();
+    bpFilter.type = 'bandpass';
+    bpFilter.frequency.value = 9000;
+    bpFilter.Q.value = 1.2;
+    const gn = audioCtx.createGain();
+    gn.gain.setValueAtTime(0.14 * g, t);
+    gn.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    noise.connect(hpFilter);
+    hpFilter.connect(bpFilter);
+    bpFilter.connect(gn);
+    gn.connect(getAudioOut());
+    noise.start(t);
+    noise.stop(t + 0.05);
+  }
+
   function stopGrooveLoop() {
     if (grooveTimeoutId !== null) {
       clearTimeout(grooveTimeoutId);
@@ -747,14 +794,18 @@
     grooveTimeoutId = null;
     if (!active || playSettings.sessionMode !== 'groove') return;
     const bpm = typeof playSettings.grooveBpm === 'number' ? playSettings.grooveBpm : 100;
-    const periodMs = 60000 / Math.max(55, Math.min(175, bpm));
-    const step = grooveBeatStep % 4;
+    const eighthMs = 30000 / Math.max(55, Math.min(175, bpm));
+    const step = grooveBeatStep % 8;
     if (step === 0) playGrooveKick();
-    else if (step === 1) playGrooveSnare('shift');
-    else if (step === 2) playGrooveHat();
-    else playGrooveSnare('enter');
+    else if (step === 1) playGrooveSoftHat();
+    else if (step === 2) playGrooveSnare('shift');
+    else if (step === 3) playGrooveSoftHat();
+    else if (step === 4) playGrooveKick();
+    else if (step === 5) playGrooveSoftHat();
+    else if (step === 6) playGrooveSnare('enter');
+    else playGrooveSoftHat();
     grooveBeatStep++;
-    grooveTimeoutId = setTimeout(scheduleGrooveBeat, periodMs);
+    grooveTimeoutId = setTimeout(scheduleGrooveBeat, eighthMs);
   }
 
   function startGrooveLoop() {
@@ -828,44 +879,71 @@
     523.25, 587.33, 659.25, 783.99, 880.0
   ];
 
+  /** Bright marimba / xylophone voice — clearly different from Classic’s mixed synth keys */
+  function playJamMarimba(freq, theme) {
+    if (!audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const dur = 0.55;
+    const lpCut = {
+      shapes: 2400,
+      space: 1900,
+      ocean: 3000,
+      jungle: 2100,
+      dinosaurs: 1700,
+      music: 2600
+    }[theme] || 2400;
+
+    const osc1 = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const osc3 = audioCtx.createOscillator();
+    osc1.type = 'sine';
+    osc2.type = 'sine';
+    osc3.type = 'sine';
+    osc1.frequency.setValueAtTime(freq, t0);
+    osc2.frequency.setValueAtTime(freq * 2.01, t0);
+    osc3.frequency.setValueAtTime(freq * 3.96, t0);
+
+    const g1 = audioCtx.createGain();
+    const g2 = audioCtx.createGain();
+    const g3 = audioCtx.createGain();
+    g1.gain.setValueAtTime(0.22, t0);
+    g2.gain.setValueAtTime(0.1, t0);
+    g3.gain.setValueAtTime(0.05, t0);
+
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = 0.7;
+    filter.frequency.setValueAtTime(lpCut * 1.4, t0);
+    filter.frequency.exponentialRampToValueAtTime(lpCut * 0.55, t0 + dur * 0.85);
+
+    const out = audioCtx.createGain();
+    out.gain.setValueAtTime(0, t0);
+    out.gain.linearRampToValueAtTime(1, t0 + 0.006);
+    out.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+
+    osc1.connect(g1);
+    osc2.connect(g2);
+    osc3.connect(g3);
+    g1.connect(filter);
+    g2.connect(filter);
+    g3.connect(filter);
+    filter.connect(out);
+    out.connect(getAudioOut());
+    osc1.start(t0);
+    osc2.start(t0);
+    osc3.start(t0);
+    osc1.stop(t0 + dur);
+    osc2.stop(t0 + dur);
+    osc3.stop(t0 + dur);
+  }
+
   function playJamMelody(key, theme) {
     if (!audioCtx) return;
     const c = key.length === 1 ? key.toLowerCase().charCodeAt(0) : 0;
     if (c < 97 || c > 122) return;
-    const freq = JAM_PENT[(c - 97) % JAM_PENT.length];
-    const t0 = audioCtx.currentTime;
-    if (theme === 'shapes') {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, t0);
-      gain.gain.setValueAtTime(0.17, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.42);
-      osc.connect(gain);
-      gain.connect(getAudioOut());
-      osc.start(t0);
-      osc.stop(t0 + 0.45);
-      return;
-    }
-    const shift = { space: 2, ocean: 1, jungle: 3, dinosaurs: 1, music: 2 }[theme] || 0;
+    const shift = theme === 'shapes' ? 0 : ({ space: 2, ocean: 1, jungle: 3, dinosaurs: 1, music: 2 }[theme] || 0);
     const f = JAM_PENT[(c - 97 + shift) % JAM_PENT.length];
-    const types = theme === 'music'
-      ? ['square', 'sawtooth', 'triangle']
-      : theme === 'ocean'
-        ? ['sine', 'triangle', 'sine']
-        : ['sine', 'triangle', 'square'];
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = types[c % types.length];
-    osc.frequency.setValueAtTime(f, t0);
-    osc.frequency.exponentialRampToValueAtTime(f * (theme === 'dinosaurs' ? 0.9 : 0.95), t0 + 0.38);
-    const g = theme === 'space' ? 0.14 : 0.16;
-    gain.gain.setValueAtTime(g, t0);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.42);
-    osc.connect(gain);
-    gain.connect(getAudioOut());
-    osc.start(t0);
-    osc.stop(t0 + 0.45);
+    playJamMarimba(f, theme);
   }
 
   function playMelodicNote(key) {
@@ -903,17 +981,15 @@
 
     // Top half = melodic, bottom half = percussive
     if (normalY < 0.5) {
-      let freq;
       if (playSettings.sessionMode === 'jam') {
         const ji = Math.floor(normalX * JAM_PENT.length) % JAM_PENT.length;
-        freq = JAM_PENT[ji];
-      } else {
-        const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
-        freq = NOTE_FREQS[Math.min(freqIndex, NOTE_FREQS.length - 1)];
+        playJamMarimba(JAM_PENT[ji], 'shapes');
+        return;
       }
+      const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
+      const freq = NOTE_FREQS[Math.min(freqIndex, NOTE_FREQS.length - 1)];
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      // Vary timbre based on vertical position within top half
       const types = ['sine', 'triangle', 'square'];
       osc.type = types[Math.floor((normalY / 0.5) * types.length)];
       osc.frequency.setValueAtTime(freq, t);
@@ -1202,16 +1278,16 @@
     const rowShift = { space: 9, ocean: 3, jungle: 11, dinosaurs: 2, music: 6 }[theme] || 0;
 
     if (normalY < 0.5) {
-      let freq;
       if (playSettings.sessionMode === 'jam') {
         const freqIndex = Math.floor(normalX * JAM_PENT.length);
         const idx = (freqIndex + rowShift) % JAM_PENT.length;
-        freq = JAM_PENT[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
-      } else {
+        const freq = JAM_PENT[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
+        playJamMarimba(freq, theme);
+        return;
+      }
       const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
       const idx = Math.min((freqIndex + rowShift) % NOTE_FREQS.length, NOTE_FREQS.length - 1);
-      freq = NOTE_FREQS[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
-      }
+      const freq = NOTE_FREQS[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       const types = theme === 'ocean' ? ['sine', 'triangle', 'sine'] : ['sine', 'triangle', 'square'];
@@ -2121,6 +2197,7 @@
 
   function quitApp() {
     active = false;
+    document.body.classList.remove('game-active');
     hideExit();
     entities.length = 0;
     activeTouches.clear();
@@ -2197,11 +2274,24 @@
   const grooveOptionsEl = document.getElementById('groove-options');
   const optGrooveBpm = document.getElementById('opt-groove-bpm');
   const optGrooveMix = document.getElementById('opt-groove-mix');
+  const playmodeHintText = document.getElementById('playmode-hint-text');
 
   function updateGroovePanelVisibility() {
     if (!grooveOptionsEl) return;
     const sel = [...sessionModeChips].find((b) => b.getAttribute('aria-checked') === 'true');
     grooveOptionsEl.hidden = !sel || sel.dataset.sessionMode !== 'groove';
+  }
+
+  function updatePlayModeHint() {
+    if (!playmodeHintText) return;
+    const sel = [...sessionModeChips].find((b) => b.getAttribute('aria-checked') === 'true');
+    const mode = sel && sel.dataset.sessionMode ? sel.dataset.sessionMode : 'classic';
+    const copy = {
+      classic: 'Original Smash Keys sounds and colors.',
+      groove: 'Adds a steady beat behind your smashes. Adjust tempo and strength below.',
+      jam: 'Letter keys and the top half of the screen use a bright xylophone sound on “sweet” notes that always fit together.'
+    };
+    playmodeHintText.textContent = copy[mode] || copy.classic;
   }
 
   function initThemeChipPreviews() {
@@ -2224,8 +2314,8 @@
       ? Math.max(55, Math.min(175, parseInt(optGrooveBpm.value, 10) || 100))
       : 100;
     const grooveMix = optGrooveMix
-      ? Math.max(0, Math.min(1, parseFloat(optGrooveMix.value) || 0.42))
-      : 0.42;
+      ? Math.max(0, Math.min(1, parseFloat(optGrooveMix.value) || 0.55))
+      : 0.55;
     return {
       theme,
       sessionMode,
@@ -2250,9 +2340,10 @@
       optGrooveBpm.value = typeof s.grooveBpm === 'number' ? s.grooveBpm : 100;
     }
     if (optGrooveMix) {
-      optGrooveMix.value = typeof s.grooveMix === 'number' ? s.grooveMix : 0.42;
+      optGrooveMix.value = typeof s.grooveMix === 'number' ? s.grooveMix : 0.55;
     }
     updateGroovePanelVisibility();
+    updatePlayModeHint();
     optLetter.checked = s.letterLearning;
     optPhysics.checked = s.enhancedPhysics;
     optVolume.value = typeof s.volume === 'number' ? s.volume : 1;
@@ -2272,6 +2363,7 @@
       sessionModeChips.forEach((b) => b.setAttribute('aria-checked', 'false'));
       btn.setAttribute('aria-checked', 'true');
       updateGroovePanelVisibility();
+      updatePlayModeHint();
       saveSettings(readSettingsFromUI());
     });
   });
@@ -2344,9 +2436,10 @@
 
     initAudio();
     attachOneShotAudioResume();
-    startGrooveLoop();
-    active = true;
     document.getElementById('start-screen').style.display = 'none';
+    document.body.classList.add('game-active');
+    active = true;
+    startGrooveLoop();
     document.body.style.cursor = 'none';
 
     // Request fullscreen (may fail on some mobile browsers, that's OK)
