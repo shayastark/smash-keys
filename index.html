@@ -489,6 +489,10 @@
   /** Surprise fires many particles at once; scale uses pre-spawn count — this tightens bursts when already busy. */
   let surpriseSurgeScale = 1;
   const surpriseSalvoQueue = [];
+  /** Opening (rings + center burst + big stars) runs one chunk per frame so a lone surprise never spikes one frame. */
+  const surpriseOpeningQueue = [];
+  /** Even with zero other entities, heavy bursts are capped — surprise was overloading the render loop on its own. */
+  const SURPRISE_SURGE_CAP = 0.52;
 
   function surpriseSalvosPerFrame() {
     return isJamSession() ? 1 : 2;
@@ -499,7 +503,8 @@
     const pad = isJamSession() ? 62 : 85;
     const denom = isJamSession() ? 278 : 295;
     const budget = soft + pad - entities.length;
-    return Math.min(1, Math.max(0.28, budget / denom));
+    const fromLoad = Math.min(1, Math.max(0.22, budget / denom));
+    return Math.min(SURPRISE_SURGE_CAP, fromLoad);
   }
 
   let bgHue = 220;
@@ -1847,7 +1852,7 @@
         ctx.globalAlpha = life;
         ctx.fillStyle = color;
         ctx.shadowColor = color;
-        ctx.shadowBlur = 18 * life;
+        ctx.shadowBlur = 7 * life;
         ctx.beginPath();
         for (let i = 0; i < points * 2; i++) {
           const r = i % 2 === 0 ? size : size * 0.38;
@@ -1882,7 +1887,7 @@
         ctx.globalAlpha = life * 0.95;
         ctx.strokeStyle = color;
         ctx.shadowColor = color;
-        ctx.shadowBlur = 12 * life;
+        ctx.shadowBlur = 4 * life;
         ctx.lineWidth = lineWidth * life;
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -2033,7 +2038,7 @@
   function processOneSurpriseSalvo() {
     const job = surpriseSalvoQueue.shift();
     if (!job) return;
-    spawnSurpriseHeavyBurst(job.sx, job.sy, Math.floor(randBetween(32, 52) * Math.max(0.5, job.calm)));
+    spawnSurpriseHeavyBurst(job.sx, job.sy, Math.floor(randBetween(18, 30) * Math.max(0.5, job.calm)));
     spawnSurpriseBigStar(job.sx, job.sy);
     if (Math.random() < 0.72 * Math.max(0.45, job.calm)) spawnEmoji(job.sx, job.sy);
     if (Math.random() < job.starChance * 1.1) spawnStar(job.sx, job.sy);
@@ -2053,18 +2058,26 @@
     const cx = W * 0.5 + randBetween(-30, 30);
     const cy = H * 0.4 + randBetween(-40, 40);
 
-    const rings = Math.max(1, Math.round(5 * Math.max(0.35, v)));
-    for (let r = 0; r < rings; r++) {
-      spawnSurpriseRing(cx + randBetween(-50, 50), cy + randBetween(-40, 40));
-    }
-    spawnSurpriseHeavyBurst(cx, cy, Math.floor(72 * Math.max(0.55, calm)));
-    const bigStars = Math.max(1, Math.round(4 * Math.max(0.3, v)));
-    for (let s = 0; s < bigStars; s++) {
-      spawnSurpriseBigStar(cx + randBetween(-120, 120), cy + randBetween(-80, 80));
-    }
+    const rings = Math.max(1, Math.min(3, Math.round(3 * Math.max(0.35, v))));
+    const bigStars = Math.max(1, Math.min(2, Math.round(2 * Math.max(0.3, v))));
 
-    const baseSalvos = Math.max(6, Math.floor(9 * Math.max(0.5, calm)));
-    const salvos = Math.max(3, Math.floor(baseSalvos * Math.max(0.35, v)));
+    surpriseOpeningQueue.length = 0;
+    surpriseOpeningQueue.push(() => {
+      for (let r = 0; r < rings; r++) {
+        spawnSurpriseRing(cx + randBetween(-50, 50), cy + randBetween(-40, 40));
+      }
+    });
+    surpriseOpeningQueue.push(() => {
+      spawnSurpriseHeavyBurst(cx, cy, Math.floor(34 * Math.max(0.55, calm)));
+    });
+    surpriseOpeningQueue.push(() => {
+      for (let s = 0; s < bigStars; s++) {
+        spawnSurpriseBigStar(cx + randBetween(-120, 120), cy + randBetween(-80, 80));
+      }
+    });
+
+    const baseSalvos = Math.max(4, Math.floor(6 * Math.max(0.5, calm)));
+    const salvos = Math.max(2, Math.floor(baseSalvos * Math.max(0.35, v)));
     surpriseSalvoQueue.length = 0;
     for (let k = 0; k < salvos; k++) {
       surpriseSalvoQueue.push({
@@ -2287,6 +2300,7 @@
     hideExit();
     entities.length = 0;
     surpriseSalvoQueue.length = 0;
+    surpriseOpeningQueue.length = 0;
     surpriseSurgeScale = 1;
     activeTouches.clear();
     smashCountSinceSurprise = 0;
@@ -2637,10 +2651,15 @@
       fireSurpriseCycle();
     }
 
-    for (let k = 0; k < surpriseSalvosPerFrame() && surpriseSalvoQueue.length; k++) {
-      processOneSurpriseSalvo();
+    if (surpriseOpeningQueue.length) {
+      const step = surpriseOpeningQueue.shift();
+      if (step) step();
+    } else {
+      for (let k = 0; k < surpriseSalvosPerFrame() && surpriseSalvoQueue.length; k++) {
+        processOneSurpriseSalvo();
+      }
     }
-    if (!surpriseSalvoQueue.length) surpriseSurgeScale = 1;
+    if (!surpriseSalvoQueue.length && !surpriseOpeningQueue.length) surpriseSurgeScale = 1;
 
     for (let i = entities.length - 1; i >= 0; i--) {
       if (!entities[i].update()) entities.splice(i, 1);
