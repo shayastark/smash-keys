@@ -2050,8 +2050,7 @@
     const v = visualLoadScale();
     surpriseSurgeScale = computeSurpriseSurgeScale();
 
-    // Groove already layers drums + smashes; skip fanfare to avoid overloading the audio graph
-    if (playSettings.sessionMode !== 'groove') playSurpriseFanfare();
+    playSurpriseFanfare();
     spawnSurpriseFlash();
     bumpThemeHue('surprise');
 
