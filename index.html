@@ -555,7 +555,14 @@
 
   /** Surprise bursts: fire after this many key/touch smashes, or when the timer below elapses (whichever first). */
   const SURPRISE_EVERY_N = 50;
+  const SURPRISE_EVERY_N_GROOVE_JAM = 100;
   const SURPRISE_INTERVAL_MS = 60000;
+
+  function surpriseEveryN() {
+    const m = playSettings.sessionMode;
+    if (m === 'groove' || m === 'jam') return SURPRISE_EVERY_N_GROOVE_JAM;
+    return SURPRISE_EVERY_N;
+  }
 
   let smashCountSinceSurprise = 0;
   let nextSurpriseAt = 0;
@@ -1287,24 +1294,38 @@
     osc.stop(t0 + dur + 0.02);
   }
 
-  /** Short ascending fanfare so surprise moments are audible, not only visual */
+  /** Short ascending fanfare — same bright marimba-adjacent vibe, different voicing/timing each time */
   function playSurpriseFanfare() {
     if (!audioCtx) return;
     const t = audioCtx.currentTime;
-    const chord = [523.25, 659.25, 783.99, 1046.5];
+    const toFreq = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
+    const voicings = [
+      [0, 4, 7, 12],
+      [0, 4, 7, 14],
+      [0, 4, 7, 16],
+      [0, 5, 7, 12],
+      [0, 3, 7, 12],
+      [0, 4, 7, 19],
+    ];
+    const iv = voicings[Math.floor(Math.random() * voicings.length)];
+    const rootMidi = 58 + Math.floor(Math.random() * 8);
+    const chord = iv.map((deg) => toFreq(rootMidi + deg) * (1 + randBetween(-0.0018, 0.0018)));
+    const stagger = randBetween(0.042, 0.068);
+    const peak = randBetween(0.18, 0.26);
+    const types = ['triangle', 'sine'];
     chord.forEach((freq, i) => {
-      const t0 = t + i * 0.055;
+      const t0 = t + i * stagger;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      osc.type = 'triangle';
+      osc.type = types[i % 2];
       osc.frequency.setValueAtTime(freq, t0);
       gain.gain.setValueAtTime(0, t0);
-      gain.gain.linearRampToValueAtTime(0.22, t0 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.55);
+      gain.gain.linearRampToValueAtTime(peak, t0 + randBetween(0.014, 0.028));
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + randBetween(0.48, 0.62));
       osc.connect(gain);
       gain.connect(getAudioOut());
       osc.start(t0);
-      osc.stop(t0 + 0.6);
+      osc.stop(t0 + 0.65);
     });
   }
 
@@ -2136,7 +2157,7 @@
 
     sessionKeys += 1;
     smashCountSinceSurprise += 1;
-    if (smashCountSinceSurprise >= SURPRISE_EVERY_N) fireSurpriseCycle();
+    if (smashCountSinceSurprise >= surpriseEveryN()) fireSurpriseCycle();
     updateStatsOverlay();
   }
 
@@ -2197,7 +2218,7 @@
 
       sessionTouches += 1;
       smashCountSinceSurprise += 1;
-      if (smashCountSinceSurprise >= SURPRISE_EVERY_N) fireSurpriseCycle();
+      if (smashCountSinceSurprise >= surpriseEveryN()) fireSurpriseCycle();
       updateStatsOverlay();
     }
   }
