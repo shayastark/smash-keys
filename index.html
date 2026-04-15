@@ -336,8 +336,8 @@
     accent-color: #feca57;
   }
 
-  #opt-groove-bpm,
-  #opt-groove-mix {
+  #opt-jam-bpm,
+  #opt-jam-mix {
     flex: 1;
     min-width: 120px;
     max-width: 240px;
@@ -357,7 +357,7 @@
     max-width: 42em;
   }
 
-  .groove-options {
+  .jam-beat-panel {
     margin-top: 0.65em;
     margin-bottom: 0;
     padding: 0.7em 0.8em;
@@ -366,11 +366,11 @@
     border: 1px solid rgba(255,255,255,0.06);
   }
 
-  .groove-options .setting-label {
+  .jam-beat-panel .setting-label {
     margin-top: 0.45em;
   }
 
-  .groove-options .setting-label:first-child {
+  .jam-beat-panel .setting-label:first-child {
     margin-top: 0;
   }
 
@@ -424,18 +424,18 @@
         <span class="setting-label" id="playmode-label">Play mode</span>
         <div class="theme-chips playmode-chips" role="radiogroup" aria-labelledby="playmode-label">
           <button type="button" class="theme-chip" data-session-mode="classic" aria-checked="true" role="radio">Classic</button>
-          <button type="button" class="theme-chip" data-session-mode="groove" aria-checked="false" role="radio">Jam</button>
-          <button type="button" class="theme-chip" data-session-mode="jam" aria-checked="false" role="radio">Groove</button>
+          <button type="button" class="theme-chip" data-session-mode="groove" aria-checked="false" role="radio">Groove</button>
+          <button type="button" class="theme-chip" data-session-mode="jam" aria-checked="false" role="radio">Jam</button>
         </div>
         <p id="playmode-hint-text" class="setting-hint playmode-hint" aria-live="polite"></p>
-        <div id="groove-options" class="groove-options" hidden>
-          <span class="setting-label" id="groove-bpm-label">Beat tempo (BPM)</span>
+        <div id="jam-beat-options" class="jam-beat-panel" hidden>
+          <span class="setting-label" id="jam-bpm-label">Beat tempo (BPM)</span>
           <div class="volume-row">
-            <input type="range" id="opt-groove-bpm" min="70" max="280" step="1" value="140" aria-labelledby="groove-bpm-label" />
+            <input type="range" id="opt-jam-bpm" min="70" max="280" step="1" value="140" aria-labelledby="jam-bpm-label" />
           </div>
-          <span class="setting-label" id="groove-mix-label">Beat strength</span>
+          <span class="setting-label" id="jam-mix-label">Beat strength</span>
           <div class="volume-row">
-            <input type="range" id="opt-groove-mix" min="0" max="1" step="0.01" value="0.55" aria-labelledby="groove-mix-label" />
+            <input type="range" id="opt-jam-mix" min="0" max="1" step="0.01" value="0.55" aria-labelledby="jam-mix-label" />
           </div>
         </div>
       </div>
@@ -496,18 +496,18 @@
   /** Smooth visual limiter: fewer new particles when many entities are alive (avoids CPU/GPU spikes). */
   const VISUAL_SOFT_CAP = 260;
   const VISUAL_HARD_CAP = 540;
-  /** Jam encourages fast melodic play — ramp down a bit earlier so visuals stay smooth. */
-  const VISUAL_SOFT_CAP_JAM = 220;
-  const VISUAL_HARD_CAP_JAM = 480;
+  /** Groove (melodic) encourages fast play — ramp down a bit earlier so visuals stay smooth. */
+  const VISUAL_SOFT_CAP_GROOVE = 220;
+  const VISUAL_HARD_CAP_GROOVE = 480;
 
-  function isJamSession() {
-    return playSettings.sessionMode === 'jam';
+  function isGrooveSession() {
+    return playSettings.sessionMode === 'groove';
   }
 
   function visualLoadScale() {
     const n = entities.length;
-    const soft = isJamSession() ? VISUAL_SOFT_CAP_JAM : VISUAL_SOFT_CAP;
-    const hard = isJamSession() ? VISUAL_HARD_CAP_JAM : VISUAL_HARD_CAP;
+    const soft = isGrooveSession() ? VISUAL_SOFT_CAP_GROOVE : VISUAL_SOFT_CAP;
+    const hard = isGrooveSession() ? VISUAL_HARD_CAP_GROOVE : VISUAL_HARD_CAP;
     if (n <= soft) return 1;
     if (n >= hard) return 0.06;
     const t = (n - soft) / (hard - soft);
@@ -528,16 +528,19 @@
   /** Opening (rings + center burst + big stars) runs one chunk per frame so a lone surprise never spikes one frame. */
   const surpriseOpeningQueue = [];
   /** Even with zero other entities, heavy bursts are capped — surprise was overloading the render loop on its own. */
-  const SURPRISE_SURGE_CAP = 0.52;
+  const SURPRISE_SURGE_CAP = 0.34;
+  /** When entity count exceeds this, drop oldest surprise-only particles so keys stay responsive */
+  const SURPRISE_ENTITY_POOL_CAP = 210;
+  const SURPRISE_ENTITY_TARGET = 165;
 
   function surpriseSalvosPerFrame() {
-    return isJamSession() ? 1 : 2;
+    return 1;
   }
 
   function computeSurpriseSurgeScale() {
-    const soft = isJamSession() ? VISUAL_SOFT_CAP_JAM : VISUAL_SOFT_CAP;
-    const pad = isJamSession() ? 62 : 85;
-    const denom = isJamSession() ? 278 : 295;
+    const soft = isGrooveSession() ? VISUAL_SOFT_CAP_GROOVE : VISUAL_SOFT_CAP;
+    const pad = isGrooveSession() ? 62 : 85;
+    const denom = isGrooveSession() ? 278 : 295;
     const budget = soft + pad - entities.length;
     const fromLoad = Math.min(1, Math.max(0.22, budget / denom));
     return Math.min(SURPRISE_SURGE_CAP, fromLoad);
@@ -552,21 +555,37 @@
   const activeTouches = new Map(); // id -> {x, y, color}
 
   const STORAGE_KEY = 'smashKeys.v1';
-  /** Jam (beat) tempo: default matches former slider max; range is half to double that. */
-  const GROOVE_BPM_DEFAULT = 140;
-  const GROOVE_BPM_MIN = 70;
-  const GROOVE_BPM_MAX = 280;
+  (function migrateSessionModeV2() {
+    if (localStorage.getItem('smashKeys.sessionModeV2')) return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const o = JSON.parse(raw);
+        if (o.sessionMode === 'groove') o.sessionMode = 'jam';
+        else if (o.sessionMode === 'jam') o.sessionMode = 'groove';
+        if (typeof o.grooveBpm === 'number' && o.jamBpm === undefined) o.jamBpm = o.grooveBpm;
+        if (typeof o.grooveMix === 'number' && o.jamMix === undefined) o.jamMix = o.grooveMix;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(o));
+      }
+    } catch (_) {}
+    localStorage.setItem('smashKeys.sessionModeV2', '1');
+  })();
 
-  function clampGrooveBpm(v) {
-    if (typeof v !== 'number' || Number.isNaN(v)) return GROOVE_BPM_DEFAULT;
-    return Math.max(GROOVE_BPM_MIN, Math.min(GROOVE_BPM_MAX, v));
+  /** Jam (beat) tempo: default matches former slider max; range is half to double that. */
+  const JAM_BPM_DEFAULT = 140;
+  const JAM_BPM_MIN = 70;
+  const JAM_BPM_MAX = 280;
+
+  function clampJamBpm(v) {
+    if (typeof v !== 'number' || Number.isNaN(v)) return JAM_BPM_DEFAULT;
+    return Math.max(JAM_BPM_MIN, Math.min(JAM_BPM_MAX, v));
   }
 
   const DEFAULT_SETTINGS = {
     theme: 'shapes',
     sessionMode: 'classic',
-    grooveBpm: GROOVE_BPM_DEFAULT,
-    grooveMix: 0.55,
+    jamBpm: JAM_BPM_DEFAULT,
+    jamMix: 0.55,
     letterLearning: false,
     enhancedPhysics: false,
     volume: 1,
@@ -581,7 +600,9 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return { ...DEFAULT_SETTINGS };
       const merged = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-      merged.grooveBpm = clampGrooveBpm(merged.grooveBpm);
+      if (merged.jamBpm === undefined && merged.grooveBpm !== undefined) merged.jamBpm = merged.grooveBpm;
+      if (merged.jamMix === undefined && merged.grooveMix !== undefined) merged.jamMix = merged.grooveMix;
+      merged.jamBpm = clampJamBpm(merged.jamBpm ?? merged.grooveBpm);
       return merged;
     } catch {
       return { ...DEFAULT_SETTINGS };
@@ -603,20 +624,21 @@
 
   /** Surprise bursts: fire after this many key/touch smashes, or when the timer below elapses (whichever first). */
   const SURPRISE_EVERY_N = 50;
-  const SURPRISE_EVERY_N_GROOVE_JAM = 100;
+  /** Non-classic modes (Groove melodic + Jam beat): less frequent surprises */
+  const SURPRISE_EVERY_N_GROOVE_OR_JAM = 100;
   const SURPRISE_INTERVAL_MS = 60000;
 
   function surpriseEveryN() {
     const m = playSettings.sessionMode;
-    if (m === 'groove' || m === 'jam') return SURPRISE_EVERY_N_GROOVE_JAM;
+    if (m === 'groove' || m === 'jam') return SURPRISE_EVERY_N_GROOVE_OR_JAM;
     return SURPRISE_EVERY_N;
   }
 
   let smashCountSinceSurprise = 0;
   let nextSurpriseAt = 0;
 
-  let grooveTimeoutId = null;
-  let grooveBeatStep = 0;
+  let jamBeatTimeoutId = null;
+  let jamBeatStep = 0;
 
   // ─── Adapt UI for mobile ──────────────────────────────
   if (isMobile) {
@@ -764,14 +786,14 @@
   }
 
 
-  function grooveDynamicsScale() {
-    const m = typeof playSettings.grooveMix === 'number' ? playSettings.grooveMix : 0.55;
+  function jamBeatMixScale() {
+    const m = typeof playSettings.jamMix === 'number' ? playSettings.jamMix : 0.55;
     return Math.max(0.06, Math.min(1, m)) * 0.72;
   }
 
-  function playGrooveKick() {
+  function playJamKick() {
     if (!audioCtx) return;
-    const g = grooveDynamicsScale();
+    const g = jamBeatMixScale();
     const t = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
     const oscGain = audioCtx.createGain();
@@ -797,9 +819,9 @@
     click.stop(t + 0.06);
   }
 
-  function playGrooveSnare(variant) {
+  function playJamSnare(variant) {
     if (!audioCtx) return;
-    const g = grooveDynamicsScale();
+    const g = jamBeatMixScale();
     const t = audioCtx.currentTime;
     const bufferSize = audioCtx.sampleRate * 0.15;
     const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
@@ -832,9 +854,9 @@
     osc.stop(t + 0.1);
   }
 
-  function playGrooveHat() {
+  function playJamHat() {
     if (!audioCtx) return;
-    const g = grooveDynamicsScale();
+    const g = jamBeatMixScale();
     const t = audioCtx.currentTime;
     const bufferSize = audioCtx.sampleRate * 0.08;
     const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
@@ -861,9 +883,9 @@
   }
 
   /** Quiet 8th-note hats so the groove feels like a continuous loop, not isolated hits */
-  function playGrooveSoftHat() {
+  function playJamSoftHat() {
     if (!audioCtx) return;
-    const g = grooveDynamicsScale() * 0.38;
+    const g = jamBeatMixScale() * 0.38;
     const t = audioCtx.currentTime;
     const bufferSize = audioCtx.sampleRate * 0.05;
     const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
@@ -889,36 +911,36 @@
     noise.stop(t + 0.05);
   }
 
-  function stopGrooveLoop() {
-    if (grooveTimeoutId !== null) {
-      clearTimeout(grooveTimeoutId);
-      grooveTimeoutId = null;
+  function stopJamBeatLoop() {
+    if (jamBeatTimeoutId !== null) {
+      clearTimeout(jamBeatTimeoutId);
+      jamBeatTimeoutId = null;
     }
   }
 
-  function scheduleGrooveBeat() {
-    grooveTimeoutId = null;
-    if (!active || playSettings.sessionMode !== 'groove') return;
-    const bpm = clampGrooveBpm(typeof playSettings.grooveBpm === 'number' ? playSettings.grooveBpm : GROOVE_BPM_DEFAULT);
+  function scheduleJamBeat() {
+    jamBeatTimeoutId = null;
+    if (!active || playSettings.sessionMode !== 'jam') return;
+    const bpm = clampJamBpm(typeof playSettings.jamBpm === 'number' ? playSettings.jamBpm : JAM_BPM_DEFAULT);
     const eighthMs = 30000 / bpm;
-    const step = grooveBeatStep % 8;
-    if (step === 0) playGrooveKick();
-    else if (step === 1) playGrooveSoftHat();
-    else if (step === 2) playGrooveSnare('shift');
-    else if (step === 3) playGrooveSoftHat();
-    else if (step === 4) playGrooveKick();
-    else if (step === 5) playGrooveSoftHat();
-    else if (step === 6) playGrooveSnare('enter');
-    else playGrooveSoftHat();
-    grooveBeatStep++;
-    grooveTimeoutId = setTimeout(scheduleGrooveBeat, eighthMs);
+    const step = jamBeatStep % 8;
+    if (step === 0) playJamKick();
+    else if (step === 1) playJamSoftHat();
+    else if (step === 2) playJamSnare('shift');
+    else if (step === 3) playJamSoftHat();
+    else if (step === 4) playJamKick();
+    else if (step === 5) playJamSoftHat();
+    else if (step === 6) playJamSnare('enter');
+    else playJamSoftHat();
+    jamBeatStep++;
+    jamBeatTimeoutId = setTimeout(scheduleJamBeat, eighthMs);
   }
 
-  function startGrooveLoop() {
-    stopGrooveLoop();
-    grooveBeatStep = 0;
-    if (playSettings.sessionMode !== 'groove') return;
-    scheduleGrooveBeat();
+  function startJamBeatLoop() {
+    stopJamBeatLoop();
+    jamBeatStep = 0;
+    if (playSettings.sessionMode !== 'jam') return;
+    scheduleJamBeat();
   }
 
 
@@ -983,21 +1005,21 @@
    * Jam mode: one distinct pitch per letter (a–z) by walking C major diatonic steps upward,
    * so keys don’t repeat every few letters like the old 10-note pentatonic bucket.
    */
-  const JAM_MAJOR_STEPS = [0, 2, 4, 5, 7, 9, 11];
-  const JAM_LETTER_FREQ = (() => {
+  const GROOVE_MAJOR_STEPS = [0, 2, 4, 5, 7, 9, 11];
+  const GROOVE_LETTER_FREQ = (() => {
     const out = [];
     for (let i = 0; i < 26; i++) {
       const oct = Math.floor(i / 7);
       const deg = i % 7;
-      const midi = 60 + oct * 12 + JAM_MAJOR_STEPS[deg];
+      const midi = 60 + oct * 12 + GROOVE_MAJOR_STEPS[deg];
       out.push(440 * Math.pow(2, (midi - 69) / 12));
     }
     return out;
   })();
   /** Keyboard a–z: rotate which pitch “a” starts on per theme (same idea as before, wider palette). */
-  const JAM_KEY_ROT = { space: 2, ocean: 1, jungle: 3, dinosaurs: 1, music: 2 };
+  const GROOVE_KEY_ROT = { space: 2, ocean: 1, jungle: 3, dinosaurs: 1, music: 2 };
   /** Bright marimba / xylophone voice — clearly different from Classic’s mixed synth keys */
-  function playJamMarimba(freq, theme) {
+  function playGrooveMarimba(freq, theme) {
     if (!audioCtx) return;
     const t0 = audioCtx.currentTime;
     const dur = 0.55;
@@ -1054,21 +1076,21 @@
     osc3.stop(t0 + dur);
   }
 
-  function playJamMelody(key, theme) {
+  function playGrooveMelody(key, theme) {
     if (!audioCtx) return;
     const c = key.length === 1 ? key.toLowerCase().charCodeAt(0) : 0;
     if (c < 97 || c > 122) return;
-    const shift = theme === 'shapes' ? 0 : (JAM_KEY_ROT[theme] || 0);
-    const f = JAM_LETTER_FREQ[(c - 97 + shift) % 26];
-    playJamMarimba(f, theme);
+    const shift = theme === 'shapes' ? 0 : (GROOVE_KEY_ROT[theme] || 0);
+    const f = GROOVE_LETTER_FREQ[(c - 97 + shift) % 26];
+    playGrooveMarimba(f, theme);
   }
 
   function playMelodicNote(key) {
     if (!audioCtx) return;
-    if (playSettings.sessionMode === 'jam') {
+    if (playSettings.sessionMode === 'groove') {
       const c = key.length === 1 ? key.toLowerCase().charCodeAt(0) : 0;
       if (c >= 97 && c <= 122) {
-        playJamMelody(key, 'shapes');
+        playGrooveMelody(key, 'shapes');
         return;
       }
     }
@@ -1098,9 +1120,9 @@
 
     // Top half = melodic, bottom half = percussive
     if (normalY < 0.5) {
-      if (playSettings.sessionMode === 'jam') {
+      if (playSettings.sessionMode === 'groove') {
         const slot = Math.min(25, Math.floor(normalX * 26 * 0.9999));
-        playJamMarimba(JAM_LETTER_FREQ[slot], 'shapes');
+        playGrooveMarimba(GROOVE_LETTER_FREQ[slot], 'shapes');
         return;
       }
       const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
@@ -1307,10 +1329,10 @@
   }
 
   function playMelodicNoteThemed(key, theme) {
-    if (playSettings.sessionMode === 'jam') {
+    if (playSettings.sessionMode === 'groove') {
       const c = key.length === 1 ? key.toLowerCase().charCodeAt(0) : 0;
       if (c >= 97 && c <= 122) {
-        playJamMelody(key, theme);
+        playGrooveMelody(key, theme);
         return;
       }
     }
@@ -1409,11 +1431,11 @@
     const rowShift = { space: 9, ocean: 3, jungle: 11, dinosaurs: 2, music: 6 }[theme] || 0;
 
     if (normalY < 0.5) {
-      if (playSettings.sessionMode === 'jam') {
+      if (playSettings.sessionMode === 'groove') {
         const slot = Math.min(25, Math.floor(normalX * 26 * 0.9999));
         const idx = (slot + rowShift) % 26;
-        const freq = JAM_LETTER_FREQ[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
-        playJamMarimba(freq, theme);
+        const freq = GROOVE_LETTER_FREQ[idx] * (theme === 'music' ? 1.02 : theme === 'space' ? 0.92 : 1);
+        playGrooveMarimba(freq, theme);
         return;
       }
       const freqIndex = Math.floor(normalX * NOTE_FREQS.length);
@@ -1863,7 +1885,7 @@
     const m = motionCalmFactor();
     const n = Math.floor(count * m * visualLoadScale() * surpriseSurgeScale);
     if (n < 1) return;
-    const loadFadeBoost = 1 + 0.24 * (1 - visualLoadScale());
+    const loadFadeBoost = 1 + 0.32 * (1 - visualLoadScale());
     for (let i = 0; i < n; i++) {
       const angle = (Math.PI * 2 * i) / n + randBetween(-0.35, 0.35);
       const speed = randBetween(6, 22);
@@ -1875,6 +1897,7 @@
       const decay = randBetween(0.0035, 0.007) * loadFadeBoost;
       let px = x, py = y;
       entities.push({
+        _surpriseFx: true,
         update() {
           px += vx;
           py += vy * 0.97 + 0.15;
@@ -1907,6 +1930,7 @@
     const points = Math.floor(randBetween(5, 9));
 
     entities.push({
+      _surpriseFx: true,
       update() {
         x += vx;
         y += vy + 0.35;
@@ -1921,7 +1945,7 @@
         ctx.globalAlpha = life;
         ctx.fillStyle = color;
         ctx.shadowColor = color;
-        ctx.shadowBlur = 7 * life;
+        ctx.shadowBlur = 4 * life;
         ctx.beginPath();
         for (let i = 0; i < points * 2; i++) {
           const r = i % 2 === 0 ? size : size * 0.38;
@@ -1946,6 +1970,7 @@
     const lineWidth = randBetween(10, 18);
 
     entities.push({
+      _surpriseFx: true,
       update() {
         radius += expandRate;
         life -= decay;
@@ -1956,7 +1981,7 @@
         ctx.globalAlpha = life * 0.95;
         ctx.strokeStyle = color;
         ctx.shadowColor = color;
-        ctx.shadowBlur = 4 * life;
+        ctx.shadowBlur = 0;
         ctx.lineWidth = lineWidth * life;
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -2067,6 +2092,16 @@
     });
   }
 
+  function thinSurpriseFxIfNeeded() {
+    if (entities.length <= SURPRISE_ENTITY_POOL_CAP) return;
+    let safety = 450;
+    while (entities.length > SURPRISE_ENTITY_TARGET && safety-- > 0) {
+      const idx = entities.findIndex((e) => e._surpriseFx);
+      if (idx === -1) break;
+      entities.splice(idx, 1);
+    }
+  }
+
   function resolveCollisions() {
     if (!playSettings.enhancedPhysics) return;
     const list = [];
@@ -2107,10 +2142,10 @@
   function processOneSurpriseSalvo() {
     const job = surpriseSalvoQueue.shift();
     if (!job) return;
-    spawnSurpriseHeavyBurst(job.sx, job.sy, Math.floor(randBetween(18, 30) * Math.max(0.5, job.calm)));
-    spawnSurpriseBigStar(job.sx, job.sy);
-    if (Math.random() < 0.72 * Math.max(0.45, job.calm)) spawnEmoji(job.sx, job.sy);
-    if (Math.random() < job.starChance * 1.1) spawnStar(job.sx, job.sy);
+    spawnSurpriseHeavyBurst(job.sx, job.sy, Math.floor(randBetween(11, 22) * Math.max(0.5, job.calm)));
+    if (Math.random() < 0.55) spawnSurpriseBigStar(job.sx, job.sy);
+    if (Math.random() < 0.38 * Math.max(0.45, job.calm)) spawnEmoji(job.sx, job.sy);
+    if (Math.random() < job.starChance * 0.65) spawnStar(job.sx, job.sy);
   }
 
   function triggerSurprise() {
@@ -2126,8 +2161,8 @@
     const cx = W * 0.5 + randBetween(-30, 30);
     const cy = H * 0.4 + randBetween(-40, 40);
 
-    const rings = Math.max(1, Math.min(3, Math.round(3 * Math.max(0.35, v))));
-    const bigStars = Math.max(1, Math.min(2, Math.round(2 * Math.max(0.3, v))));
+    const rings = Math.max(1, Math.min(2, Math.round(2 * Math.max(0.35, v))));
+    const bigStars = 1;
 
     surpriseOpeningQueue.length = 0;
     surpriseOpeningQueue.push(() => {
@@ -2136,7 +2171,7 @@
       }
     });
     surpriseOpeningQueue.push(() => {
-      spawnSurpriseHeavyBurst(cx, cy, Math.floor(34 * Math.max(0.55, calm)));
+      spawnSurpriseHeavyBurst(cx, cy, Math.floor(20 * Math.max(0.55, calm)));
     });
     surpriseOpeningQueue.push(() => {
       for (let s = 0; s < bigStars; s++) {
@@ -2144,7 +2179,7 @@
       }
     });
 
-    const baseSalvos = Math.max(4, Math.floor(6 * Math.max(0.5, calm)));
+    const baseSalvos = Math.max(2, Math.floor(4 * Math.max(0.5, calm)));
     const salvos = Math.max(2, Math.floor(baseSalvos * Math.max(0.35, v)));
     surpriseSalvoQueue.length = 0;
     for (let k = 0; k < salvos; k++) {
@@ -2290,7 +2325,7 @@
         const dist = Math.sqrt(dx * dx + dy * dy);
         const stepDiv = playSettings.enhancedPhysics ? 20 : 10;
         let steps = Math.max(1, Math.floor(dist / stepDiv));
-        const trailThresh = isJamSession() ? 175 : 200;
+        const trailThresh = isGrooveSession() ? 175 : 200;
         if (entities.length > trailThresh) {
           steps = Math.max(1, Math.ceil(steps * Math.max(0.22, visualLoadScale())));
         }
@@ -2374,7 +2409,7 @@
     smashCountSinceSurprise = 0;
     nextSurpriseAt = 0;
     if ('speechSynthesis' in window) speechSynthesis.cancel();
-    stopGrooveLoop();
+    stopJamBeatLoop();
 
     const statsEl = document.getElementById('stats-overlay');
     if (statsEl) {
@@ -2441,15 +2476,15 @@
   const optVolume = document.getElementById('opt-volume');
   const optMute = document.getElementById('opt-mute');
   const sessionModeChips = document.querySelectorAll('[data-session-mode]');
-  const grooveOptionsEl = document.getElementById('groove-options');
-  const optGrooveBpm = document.getElementById('opt-groove-bpm');
-  const optGrooveMix = document.getElementById('opt-groove-mix');
+  const jamBeatOptionsEl = document.getElementById('jam-beat-options');
+  const optJamBpm = document.getElementById('opt-jam-bpm');
+  const optJamMix = document.getElementById('opt-jam-mix');
   const playmodeHintText = document.getElementById('playmode-hint-text');
 
-  function updateGroovePanelVisibility() {
-    if (!grooveOptionsEl) return;
+  function updateJamBeatPanelVisibility() {
+    if (!jamBeatOptionsEl) return;
     const sel = [...sessionModeChips].find((b) => b.getAttribute('aria-checked') === 'true');
-    grooveOptionsEl.hidden = !sel || sel.dataset.sessionMode !== 'groove';
+    jamBeatOptionsEl.hidden = !sel || sel.dataset.sessionMode !== 'jam';
   }
 
   function updatePlayModeHint() {
@@ -2458,8 +2493,8 @@
     const mode = sel && sel.dataset.sessionMode ? sel.dataset.sessionMode : 'classic';
     const copy = {
       classic: 'Original sounds and colors.',
-      groove: 'Adds a beat behind your play. Adjust below.',
-      jam: 'Softer, sweeter sounds.'
+      groove: 'Softer, sweeter sounds.',
+      jam: 'Adds a beat behind your play. Adjust below.'
     };
     playmodeHintText.textContent = copy[mode] || copy.classic;
   }
@@ -2480,17 +2515,17 @@
     const theme = sel && sel.dataset.theme ? sel.dataset.theme : 'shapes';
     const sm = [...sessionModeChips].find((b) => b.getAttribute('aria-checked') === 'true');
     const sessionMode = sm && sm.dataset.sessionMode ? sm.dataset.sessionMode : 'classic';
-    const grooveBpm = optGrooveBpm
-      ? clampGrooveBpm(parseInt(optGrooveBpm.value, 10) || GROOVE_BPM_DEFAULT)
-      : GROOVE_BPM_DEFAULT;
-    const grooveMix = optGrooveMix
-      ? Math.max(0, Math.min(1, parseFloat(optGrooveMix.value) || 0.55))
+    const jamBpm = optJamBpm
+      ? clampJamBpm(parseInt(optJamBpm.value, 10) || JAM_BPM_DEFAULT)
+      : JAM_BPM_DEFAULT;
+    const jamMix = optJamMix
+      ? Math.max(0, Math.min(1, parseFloat(optJamMix.value) || 0.55))
       : 0.55;
     return {
       theme,
       sessionMode,
-      grooveBpm,
-      grooveMix,
+      jamBpm,
+      jamMix,
       letterLearning: optLetter.checked,
       enhancedPhysics: optPhysics.checked,
       volume: Math.max(0, Math.min(1, parseFloat(optVolume.value) || 1)),
@@ -2506,13 +2541,25 @@
     sessionModeChips.forEach((btn) => {
       btn.setAttribute('aria-checked', btn.dataset.sessionMode === mode ? 'true' : 'false');
     });
-    if (optGrooveBpm) {
-      optGrooveBpm.value = clampGrooveBpm(typeof s.grooveBpm === 'number' ? s.grooveBpm : GROOVE_BPM_DEFAULT);
+    if (optJamBpm) {
+      const bpm =
+        typeof s.jamBpm === 'number'
+          ? s.jamBpm
+          : typeof s.grooveBpm === 'number'
+            ? s.grooveBpm
+            : JAM_BPM_DEFAULT;
+      optJamBpm.value = clampJamBpm(bpm);
     }
-    if (optGrooveMix) {
-      optGrooveMix.value = typeof s.grooveMix === 'number' ? s.grooveMix : 0.55;
+    if (optJamMix) {
+      const mix =
+        typeof s.jamMix === 'number'
+          ? s.jamMix
+          : typeof s.grooveMix === 'number'
+            ? s.grooveMix
+            : 0.55;
+      optJamMix.value = mix;
     }
-    updateGroovePanelVisibility();
+    updateJamBeatPanelVisibility();
     updatePlayModeHint();
     optLetter.checked = s.letterLearning;
     optPhysics.checked = s.enhancedPhysics;
@@ -2532,7 +2579,7 @@
     btn.addEventListener('click', () => {
       sessionModeChips.forEach((b) => b.setAttribute('aria-checked', 'false'));
       btn.setAttribute('aria-checked', 'true');
-      updateGroovePanelVisibility();
+      updateJamBeatPanelVisibility();
       updatePlayModeHint();
       saveSettings(readSettingsFromUI());
     });
@@ -2553,21 +2600,21 @@
     applyMasterVolume();
   });
 
-  if (optGrooveBpm) {
-    optGrooveBpm.addEventListener('input', () => {
+  if (optJamBpm) {
+    optJamBpm.addEventListener('input', () => {
       const s = readSettingsFromUI();
-      playSettings.grooveBpm = s.grooveBpm;
+      playSettings.jamBpm = s.jamBpm;
       saveSettings(s);
-      if (active && playSettings.sessionMode === 'groove') {
-        stopGrooveLoop();
-        startGrooveLoop();
+      if (active && playSettings.sessionMode === 'jam') {
+        stopJamBeatLoop();
+        startJamBeatLoop();
       }
     });
   }
-  if (optGrooveMix) {
-    optGrooveMix.addEventListener('input', () => {
+  if (optJamMix) {
+    optJamMix.addEventListener('input', () => {
       const s = readSettingsFromUI();
-      playSettings.grooveMix = s.grooveMix;
+      playSettings.jamMix = s.jamMix;
       saveSettings(s);
     });
   }
@@ -2609,7 +2656,7 @@
     document.getElementById('start-screen').style.display = 'none';
     document.body.classList.add('game-active');
     active = true;
-    startGrooveLoop();
+    startJamBeatLoop();
     document.body.style.cursor = 'none';
 
     // Request fullscreen (may fail on some mobile browsers, that's OK)
@@ -2689,10 +2736,10 @@
   // when the page becomes visible again
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      stopGrooveLoop();
+      stopJamBeatLoop();
     } else if (active && document.visibilityState === 'visible') {
       requestWakeLock();
-      if (playSettings.sessionMode === 'groove') startGrooveLoop();
+      if (playSettings.sessionMode === 'jam') startJamBeatLoop();
       if (!exitShowing) {
         window.focus();
         if (!document.fullscreenElement) {
@@ -2732,6 +2779,7 @@
     for (let i = entities.length - 1; i >= 0; i--) {
       if (!entities[i].update()) entities.splice(i, 1);
     }
+    thinSurpriseFxIfNeeded();
     resolveCollisions();
     for (let i = 0; i < entities.length; i++) entities[i].draw();
   }
