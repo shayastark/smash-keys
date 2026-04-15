@@ -424,14 +424,14 @@
         <span class="setting-label" id="playmode-label">Play mode</span>
         <div class="theme-chips playmode-chips" role="radiogroup" aria-labelledby="playmode-label">
           <button type="button" class="theme-chip" data-session-mode="classic" aria-checked="true" role="radio">Classic</button>
-          <button type="button" class="theme-chip" data-session-mode="groove" aria-checked="false" role="radio">Groove</button>
-          <button type="button" class="theme-chip" data-session-mode="jam" aria-checked="false" role="radio">Jam</button>
+          <button type="button" class="theme-chip" data-session-mode="groove" aria-checked="false" role="radio">Jam</button>
+          <button type="button" class="theme-chip" data-session-mode="jam" aria-checked="false" role="radio">Groove</button>
         </div>
         <p id="playmode-hint-text" class="setting-hint playmode-hint" aria-live="polite"></p>
         <div id="groove-options" class="groove-options" hidden>
           <span class="setting-label" id="groove-bpm-label">Beat tempo (BPM)</span>
           <div class="volume-row">
-            <input type="range" id="opt-groove-bpm" min="70" max="140" step="1" value="100" aria-labelledby="groove-bpm-label" />
+            <input type="range" id="opt-groove-bpm" min="70" max="280" step="1" value="140" aria-labelledby="groove-bpm-label" />
           </div>
           <span class="setting-label" id="groove-mix-label">Beat strength</span>
           <div class="volume-row">
@@ -552,10 +552,20 @@
   const activeTouches = new Map(); // id -> {x, y, color}
 
   const STORAGE_KEY = 'smashKeys.v1';
+  /** Jam (beat) tempo: default matches former slider max; range is half to double that. */
+  const GROOVE_BPM_DEFAULT = 140;
+  const GROOVE_BPM_MIN = 70;
+  const GROOVE_BPM_MAX = 280;
+
+  function clampGrooveBpm(v) {
+    if (typeof v !== 'number' || Number.isNaN(v)) return GROOVE_BPM_DEFAULT;
+    return Math.max(GROOVE_BPM_MIN, Math.min(GROOVE_BPM_MAX, v));
+  }
+
   const DEFAULT_SETTINGS = {
     theme: 'shapes',
     sessionMode: 'classic',
-    grooveBpm: 100,
+    grooveBpm: GROOVE_BPM_DEFAULT,
     grooveMix: 0.55,
     letterLearning: false,
     enhancedPhysics: false,
@@ -570,7 +580,9 @@
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return { ...DEFAULT_SETTINGS };
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      const merged = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      merged.grooveBpm = clampGrooveBpm(merged.grooveBpm);
+      return merged;
     } catch {
       return { ...DEFAULT_SETTINGS };
     }
@@ -887,8 +899,8 @@
   function scheduleGrooveBeat() {
     grooveTimeoutId = null;
     if (!active || playSettings.sessionMode !== 'groove') return;
-    const bpm = typeof playSettings.grooveBpm === 'number' ? playSettings.grooveBpm : 100;
-    const eighthMs = 30000 / Math.max(55, Math.min(175, bpm));
+    const bpm = clampGrooveBpm(typeof playSettings.grooveBpm === 'number' ? playSettings.grooveBpm : GROOVE_BPM_DEFAULT);
+    const eighthMs = 30000 / bpm;
     const step = grooveBeatStep % 8;
     if (step === 0) playGrooveKick();
     else if (step === 1) playGrooveSoftHat();
@@ -2469,8 +2481,8 @@
     const sm = [...sessionModeChips].find((b) => b.getAttribute('aria-checked') === 'true');
     const sessionMode = sm && sm.dataset.sessionMode ? sm.dataset.sessionMode : 'classic';
     const grooveBpm = optGrooveBpm
-      ? Math.max(55, Math.min(175, parseInt(optGrooveBpm.value, 10) || 100))
-      : 100;
+      ? clampGrooveBpm(parseInt(optGrooveBpm.value, 10) || GROOVE_BPM_DEFAULT)
+      : GROOVE_BPM_DEFAULT;
     const grooveMix = optGrooveMix
       ? Math.max(0, Math.min(1, parseFloat(optGrooveMix.value) || 0.55))
       : 0.55;
@@ -2495,7 +2507,7 @@
       btn.setAttribute('aria-checked', btn.dataset.sessionMode === mode ? 'true' : 'false');
     });
     if (optGrooveBpm) {
-      optGrooveBpm.value = typeof s.grooveBpm === 'number' ? s.grooveBpm : 100;
+      optGrooveBpm.value = clampGrooveBpm(typeof s.grooveBpm === 'number' ? s.grooveBpm : GROOVE_BPM_DEFAULT);
     }
     if (optGrooveMix) {
       optGrooveMix.value = typeof s.grooveMix === 'number' ? s.grooveMix : 0.55;

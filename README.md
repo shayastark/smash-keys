@@ -32,7 +32,7 @@ Host the project root on any static host (e.g. GitHub Pages, Vercel, Netlify). P
 ## Settings (Options on the home screen)
 
 - **Theme** — Visual palette, emoji sets, and themed sounds (Shapes keeps the original sound mapping).
-- **Play mode** — **Classic** is the original experience. **Groove** adds a steady drum pattern (tempo + strength) in the background; **Jam** gives letter keys and the top half of the touch area a bright xylophone-style sound on pentatonic notes so it’s easy to hear simple melodies (still no rules or scoring).
+- **Play mode** — **Classic** is the original experience. **Jam** adds a steady drum pattern (tempo + strength) in the background — default **140 BPM**, adjustable **70–280** (half to double that default); **Groove** uses softer, sweeter melodic sounds for keys (still no rules or scoring).
 - **Letter learning** — Speaks letters and numbers when keys are pressed (keyboard only); uses the browser’s text-to-speech (quality varies by OS).
 - **Volume / Mute** — Master gain for all synthesized sounds; saved in the browser.
 - **Bouncy letters & shapes (calmer motion)** — Enables collision physics and **reduces** particles, trails, and surprise bursts so the screen stays a bit calmer.
