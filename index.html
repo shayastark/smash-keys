@@ -215,11 +215,26 @@
   }
 
   #settings-panel {
-    background: rgba(0,0,0,0.25);
+    background: rgba(0,0,0,0.28);
     border-radius: 16px;
-    padding: 1em 1em 1.1em;
+    padding: 1.15rem 1.15rem 1.25rem;
     margin-bottom: 0.25em;
     width: 100%;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .settings-section {
+    margin: 0;
+  }
+
+  .settings-section + .settings-section {
+    margin-top: 1.05rem;
+    padding-top: 1.05rem;
+    border-top: 1px solid rgba(255,255,255,0.14);
+  }
+
+  .settings-section--theme .theme-chips {
+    margin-bottom: 0.15em;
   }
 
   #settings-panel[hidden] {
@@ -264,24 +279,34 @@
 
   .toggle-row {
     display: flex;
-    align-items: center;
-    gap: 0.6em;
-    font-size: clamp(0.85rem, 2.2vw, 1.15rem);
-    color: rgba(255,255,255,0.95);
-    margin-top: 0.75em;
+    align-items: flex-start;
+    gap: 0.55em;
+    font-size: clamp(0.78rem, 2vw, 1.02rem);
+    color: rgba(255,255,255,0.92);
+    margin-top: 0.65em;
     cursor: pointer;
-    font-weight: bold;
+    font-weight: 600;
+    line-height: 1.38;
+  }
+
+  .settings-section--more > .toggle-row {
+    margin-top: 0.75em;
+  }
+
+  .settings-section--more > .toggle-row:first-child {
+    margin-top: 0;
   }
 
   .toggle-row input {
-    width: 1.35em;
-    height: 1.35em;
+    width: 1.2em;
+    height: 1.2em;
     flex-shrink: 0;
+    margin-top: 0.18em;
     accent-color: #feca57;
   }
 
   .volume-block {
-    margin-top: 0.75em;
+    margin-top: 0.85em;
   }
 
   .volume-block .setting-label {
@@ -292,10 +317,15 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.75em;
+    gap: 0.85em 1em;
   }
 
   .volume-row .toggle-row {
+    margin-top: 0;
+    align-items: center;
+  }
+
+  .volume-row .toggle-row input {
     margin-top: 0;
   }
 
@@ -315,24 +345,25 @@
   }
 
   .playmode-chips {
-    margin-bottom: 0.35em;
+    margin-bottom: 0.4em;
   }
 
   .setting-hint.playmode-hint {
-    font-size: clamp(0.85rem, 2.2vw, 1.15rem);
-    color: rgba(255,255,255,0.9);
-    margin: 0.35em 0 0.65em;
+    font-size: clamp(0.7rem, 1.75vw, 0.88rem);
+    color: rgba(255,255,255,0.72);
+    margin: 0 0 0.15em;
     font-weight: normal;
-    line-height: 1.35;
+    line-height: 1.4;
     max-width: 42em;
   }
 
   .groove-options {
-    margin-top: 0.5em;
-    margin-bottom: 0.35em;
-    padding: 0.65em 0.75em;
+    margin-top: 0.65em;
+    margin-bottom: 0;
+    padding: 0.7em 0.8em;
     border-radius: 12px;
-    background: rgba(0,0,0,0.2);
+    background: rgba(0,0,0,0.22);
+    border: 1px solid rgba(255,255,255,0.06);
   }
 
   .groove-options .setting-label {
@@ -378,50 +409,56 @@
   <div id="settings-wrap">
     <button type="button" id="settings-toggle" aria-expanded="false" aria-controls="settings-panel">Options</button>
     <div id="settings-panel" hidden>
-      <span class="setting-label" id="theme-label">Theme</span>
-      <div class="theme-chips" role="radiogroup" aria-labelledby="theme-label">
-        <button type="button" class="theme-chip" data-theme="space" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Space</button>
-        <button type="button" class="theme-chip" data-theme="shapes" aria-checked="true" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Shapes</button>
-        <button type="button" class="theme-chip" data-theme="ocean" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Ocean</button>
-        <button type="button" class="theme-chip" data-theme="jungle" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Jungle</button>
-        <button type="button" class="theme-chip" data-theme="dinosaurs" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Dinosaurs</button>
-        <button type="button" class="theme-chip" data-theme="music" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Music</button>
-      </div>
-      <span class="setting-label" id="playmode-label">Play mode</span>
-      <div class="theme-chips playmode-chips" role="radiogroup" aria-labelledby="playmode-label">
-        <button type="button" class="theme-chip" data-session-mode="classic" aria-checked="true" role="radio">Classic</button>
-        <button type="button" class="theme-chip" data-session-mode="groove" aria-checked="false" role="radio">Groove</button>
-        <button type="button" class="theme-chip" data-session-mode="jam" aria-checked="false" role="radio">Jam</button>
-      </div>
-      <p id="playmode-hint-text" class="setting-hint playmode-hint" aria-live="polite"></p>
-      <div id="groove-options" class="groove-options" hidden>
-        <span class="setting-label" id="groove-bpm-label">Beat tempo (BPM)</span>
-        <div class="volume-row">
-          <input type="range" id="opt-groove-bpm" min="70" max="140" step="1" value="100" aria-labelledby="groove-bpm-label" />
-        </div>
-        <span class="setting-label" id="groove-mix-label">Beat strength</span>
-        <div class="volume-row">
-          <input type="range" id="opt-groove-mix" min="0" max="1" step="0.01" value="0.55" aria-labelledby="groove-mix-label" />
+      <div class="settings-section settings-section--theme">
+        <span class="setting-label" id="theme-label">Theme</span>
+        <div class="theme-chips" role="radiogroup" aria-labelledby="theme-label">
+          <button type="button" class="theme-chip" data-theme="space" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Space</button>
+          <button type="button" class="theme-chip" data-theme="shapes" aria-checked="true" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Shapes</button>
+          <button type="button" class="theme-chip" data-theme="ocean" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Ocean</button>
+          <button type="button" class="theme-chip" data-theme="jungle" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Jungle</button>
+          <button type="button" class="theme-chip" data-theme="dinosaurs" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Dinosaurs</button>
+          <button type="button" class="theme-chip" data-theme="music" aria-checked="false" role="radio"><span class="theme-chip-preview" aria-hidden="true"></span>Music</button>
         </div>
       </div>
-      <label class="toggle-row">
-        <input type="checkbox" id="opt-letter" />
-        <span>Letter learning — Speaks letters and numbers when keys are pressed. (Keyboard only)</span>
-      </label>
-      <div class="volume-block">
-        <span class="setting-label" id="volume-label">Volume</span>
-        <div class="volume-row">
-          <input type="range" id="opt-volume" min="0" max="1" step="0.01" value="1" aria-labelledby="volume-label" />
-          <label class="toggle-row">
-            <input type="checkbox" id="opt-mute" />
-            <span>Mute</span>
-          </label>
+      <div class="settings-section settings-section--playmode">
+        <span class="setting-label" id="playmode-label">Play mode</span>
+        <div class="theme-chips playmode-chips" role="radiogroup" aria-labelledby="playmode-label">
+          <button type="button" class="theme-chip" data-session-mode="classic" aria-checked="true" role="radio">Classic</button>
+          <button type="button" class="theme-chip" data-session-mode="groove" aria-checked="false" role="radio">Groove</button>
+          <button type="button" class="theme-chip" data-session-mode="jam" aria-checked="false" role="radio">Jam</button>
+        </div>
+        <p id="playmode-hint-text" class="setting-hint playmode-hint" aria-live="polite"></p>
+        <div id="groove-options" class="groove-options" hidden>
+          <span class="setting-label" id="groove-bpm-label">Beat tempo (BPM)</span>
+          <div class="volume-row">
+            <input type="range" id="opt-groove-bpm" min="70" max="140" step="1" value="100" aria-labelledby="groove-bpm-label" />
+          </div>
+          <span class="setting-label" id="groove-mix-label">Beat strength</span>
+          <div class="volume-row">
+            <input type="range" id="opt-groove-mix" min="0" max="1" step="0.01" value="0.55" aria-labelledby="groove-mix-label" />
+          </div>
         </div>
       </div>
-      <label class="toggle-row">
-        <input type="checkbox" id="opt-physics" />
-        <span>Bouncy letters &amp; shapes (calmer motion)</span>
-      </label>
+      <div class="settings-section settings-section--more">
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-letter" />
+          <span>Letter learning — Speaks letters &amp; numbers (keyboard only)</span>
+        </label>
+        <div class="volume-block">
+          <span class="setting-label" id="volume-label">Volume</span>
+          <div class="volume-row">
+            <input type="range" id="opt-volume" min="0" max="1" step="0.01" value="1" aria-labelledby="volume-label" />
+            <label class="toggle-row">
+              <input type="checkbox" id="opt-mute" />
+              <span>Mute</span>
+            </label>
+          </div>
+        </div>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-physics" />
+          <span>Bouncy letters &amp; shapes (calmer motion)</span>
+        </label>
+      </div>
     </div>
   </div>
 </div>
