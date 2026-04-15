@@ -49,8 +49,15 @@
 
   body.game-active {
     overflow: hidden;
-    cursor: none;
     touch-action: none;
+  }
+
+  body.game-active:not(.big-kid-jam) {
+    cursor: none;
+  }
+
+  body.game-active.big-kid-jam {
+    cursor: auto;
   }
 
   #start-screen {
@@ -337,7 +344,9 @@
   }
 
   #opt-jam-bpm,
-  #opt-jam-mix {
+  #opt-jam-mix,
+  #opt-jam-bpm-hud,
+  #opt-jam-mix-hud {
     flex: 1;
     min-width: 120px;
     max-width: 240px;
@@ -374,6 +383,10 @@
     margin-top: 0;
   }
 
+  .jam-beat-panel .jam-big-kid-row {
+    margin-top: 0.65em;
+  }
+
   .theme-chip-preview {
     width: 2.35em;
     height: 0.52em;
@@ -397,6 +410,53 @@
 
   #stats-overlay.visible {
     display: block;
+  }
+
+  #jam-play-hud {
+    position: fixed;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 600;
+    max-width: min(200px, 32vw);
+    padding: 0.65em 0.75em;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    pointer-events: auto;
+    touch-action: manipulation;
+    cursor: default;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #jam-play-hud[hidden] {
+    display: none !important;
+  }
+
+  #jam-play-hud .jam-play-hud-label {
+    display: block;
+    font-size: clamp(0.62rem, 1.5vw, 0.72rem);
+    color: rgba(255, 255, 255, 0.78);
+    margin-top: 0.5em;
+    font-weight: bold;
+  }
+
+  #jam-play-hud .jam-play-hud-label:first-child {
+    margin-top: 0;
+  }
+
+  #jam-play-hud .volume-row {
+    margin-top: 0.2em;
+  }
+
+  #jam-play-hud input[type="range"] {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
   }
 </style>
 </head>
@@ -437,6 +497,10 @@
           <div class="volume-row">
             <input type="range" id="opt-jam-mix" min="0" max="1" step="0.01" value="0.55" aria-labelledby="jam-mix-label" />
           </div>
+          <label class="toggle-row jam-big-kid-row">
+            <input type="checkbox" id="opt-big-kid-jam" />
+            <span>Big kid mode — normal mouse cursor and beat controls on screen while playing</span>
+          </label>
         </div>
       </div>
       <div class="settings-section settings-section--more">
@@ -464,6 +528,19 @@
 </div>
 
 <canvas id="canvas"></canvas>
+
+<div id="jam-play-hud" class="jam-play-hud" hidden role="region" aria-label="Beat tempo and strength">
+  <div class="jam-play-hud-inner">
+    <span class="jam-play-hud-label" id="jam-hud-bpm-label">Beat tempo (BPM)</span>
+    <div class="volume-row">
+      <input type="range" id="opt-jam-bpm-hud" min="70" max="280" step="1" value="140" aria-labelledby="jam-hud-bpm-label" />
+    </div>
+    <span class="jam-play-hud-label" id="jam-hud-mix-label">Beat strength</span>
+    <div class="volume-row">
+      <input type="range" id="opt-jam-mix-hud" min="0" max="1" step="0.01" value="0.55" aria-labelledby="jam-hud-mix-label" />
+    </div>
+  </div>
+</div>
 
 <div id="exit-overlay">
   <h2>Leaving already?</h2>
@@ -586,6 +663,7 @@
     sessionMode: 'classic',
     jamBpm: JAM_BPM_DEFAULT,
     jamMix: 0.55,
+    bigKidJam: false,
     letterLearning: false,
     enhancedPhysics: false,
     volume: 1,
@@ -2246,6 +2324,8 @@
 
   // ─── Touch handlers (mobile) ──────────────────────────
   let lastThreeFingerTap = 0;
+  /** Touch identifiers that began on the in-game Jam HUD (sliders) — skip smash/trail logic for them */
+  const jamHudTouchIds = new Set();
 
   function handleTouchStart(e) {
     if (!active) return;
@@ -2253,6 +2333,16 @@
     // Let touches on exit overlay buttons pass through to their handlers
     const target = e.target;
     if (target.id === 'resume-btn' || target.id === 'quit-btn') return;
+    if (
+      playSettings.sessionMode === 'jam' &&
+      playSettings.bigKidJam &&
+      isInsideJamPlayHud(target)
+    ) {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        jamHudTouchIds.add(e.changedTouches[i].identifier);
+      }
+      return;
+    }
 
     e.preventDefault();
 
@@ -2308,6 +2398,16 @@
 
   function handleTouchMove(e) {
     if (!active || exitShowing) return;
+    if (playSettings.sessionMode === 'jam' && playSettings.bigKidJam && jamHudTouchIds.size) {
+      let anyNonHudMove = false;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (!jamHudTouchIds.has(e.changedTouches[i].identifier)) {
+          anyNonHudMove = true;
+          break;
+        }
+      }
+      if (e.changedTouches.length && !anyNonHudMove) return;
+    }
     e.preventDefault();
 
     const th = themeDef(playTheme);
@@ -2353,10 +2453,23 @@
 
   function handleTouchEnd(e) {
     if (!active) return;
+
+    const hasNonHudEnd = [...e.changedTouches].some((t) => !jamHudTouchIds.has(t.identifier));
+    if (!hasNonHudEnd) {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        jamHudTouchIds.delete(e.changedTouches[i].identifier);
+      }
+      return;
+    }
+
     e.preventDefault();
 
     for (let i = 0; i < e.changedTouches.length; i++) {
       const touch = e.changedTouches[i];
+      if (jamHudTouchIds.has(touch.identifier)) {
+        jamHudTouchIds.delete(touch.identifier);
+        continue;
+      }
       const x = touch.clientX;
       const y = touch.clientY;
 
@@ -2373,6 +2486,13 @@
   // ─── Mouse handler (desktop click fallback) ───────────
   function handleMouseDown(e) {
     if (!active || exitShowing || isMobile) return;
+    if (
+      playSettings.sessionMode === 'jam' &&
+      playSettings.bigKidJam &&
+      isInsideJamPlayHud(e.target)
+    ) {
+      return;
+    }
     e.preventDefault();
 
     const x = e.clientX;
@@ -2400,12 +2520,15 @@
   function quitApp() {
     active = false;
     document.body.classList.remove('game-active');
+    document.body.classList.remove('big-kid-jam');
+    updateJamPlayHud();
     hideExit();
     entities.length = 0;
     surpriseSalvoQueue.length = 0;
     surpriseOpeningQueue.length = 0;
     surpriseSurgeScale = 1;
     activeTouches.clear();
+    jamHudTouchIds.clear();
     smashCountSinceSurprise = 0;
     nextSurpriseAt = 0;
     if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -2479,7 +2602,35 @@
   const jamBeatOptionsEl = document.getElementById('jam-beat-options');
   const optJamBpm = document.getElementById('opt-jam-bpm');
   const optJamMix = document.getElementById('opt-jam-mix');
+  const optBigKidJam = document.getElementById('opt-big-kid-jam');
+  const jamPlayHudEl = document.getElementById('jam-play-hud');
+  const optJamBpmHud = document.getElementById('opt-jam-bpm-hud');
+  const optJamMixHud = document.getElementById('opt-jam-mix-hud');
   const playmodeHintText = document.getElementById('playmode-hint-text');
+
+  function isInsideJamPlayHud(target) {
+    if (!jamPlayHudEl || jamPlayHudEl.hidden) return false;
+    return !!(target && target.closest && target.closest('#jam-play-hud'));
+  }
+
+  function syncJamBpmSlidersValue(v) {
+    const n = clampJamBpm(v);
+    if (optJamBpm) optJamBpm.value = n;
+    if (optJamBpmHud) optJamBpmHud.value = n;
+  }
+
+  function syncJamMixSlidersValue(v) {
+    const n = Math.max(0, Math.min(1, typeof v === 'number' && !Number.isNaN(v) ? v : 0.55));
+    if (optJamMix) optJamMix.value = n;
+    if (optJamMixHud) optJamMixHud.value = n;
+  }
+
+  function updateJamPlayHud() {
+    if (!jamPlayHudEl) return;
+    const show = active && playSettings.sessionMode === 'jam' && playSettings.bigKidJam;
+    jamPlayHudEl.hidden = !show;
+    jamPlayHudEl.setAttribute('aria-hidden', show ? 'false' : 'true');
+  }
 
   function updateJamBeatPanelVisibility() {
     if (!jamBeatOptionsEl) return;
@@ -2526,6 +2677,7 @@
       sessionMode,
       jamBpm,
       jamMix,
+      bigKidJam: optBigKidJam ? optBigKidJam.checked : false,
       letterLearning: optLetter.checked,
       enhancedPhysics: optPhysics.checked,
       volume: Math.max(0, Math.min(1, parseFloat(optVolume.value) || 1)),
@@ -2541,24 +2693,21 @@
     sessionModeChips.forEach((btn) => {
       btn.setAttribute('aria-checked', btn.dataset.sessionMode === mode ? 'true' : 'false');
     });
-    if (optJamBpm) {
-      const bpm =
-        typeof s.jamBpm === 'number'
-          ? s.jamBpm
-          : typeof s.grooveBpm === 'number'
-            ? s.grooveBpm
-            : JAM_BPM_DEFAULT;
-      optJamBpm.value = clampJamBpm(bpm);
-    }
-    if (optJamMix) {
-      const mix =
-        typeof s.jamMix === 'number'
-          ? s.jamMix
-          : typeof s.grooveMix === 'number'
-            ? s.grooveMix
-            : 0.55;
-      optJamMix.value = mix;
-    }
+    syncJamBpmSlidersValue(
+      typeof s.jamBpm === 'number'
+        ? s.jamBpm
+        : typeof s.grooveBpm === 'number'
+          ? s.grooveBpm
+          : JAM_BPM_DEFAULT
+    );
+    syncJamMixSlidersValue(
+      typeof s.jamMix === 'number'
+        ? s.jamMix
+        : typeof s.grooveMix === 'number'
+          ? s.grooveMix
+          : 0.55
+    );
+    if (optBigKidJam) optBigKidJam.checked = !!s.bigKidJam;
     updateJamBeatPanelVisibility();
     updatePlayModeHint();
     optLetter.checked = s.letterLearning;
@@ -2600,22 +2749,46 @@
     applyMasterVolume();
   });
 
-  if (optJamBpm) {
-    optJamBpm.addEventListener('input', () => {
-      const s = readSettingsFromUI();
-      playSettings.jamBpm = s.jamBpm;
-      saveSettings(s);
-      if (active && playSettings.sessionMode === 'jam') {
-        stopJamBeatLoop();
-        startJamBeatLoop();
-      }
-    });
+  function onJamBpmSliderInput(e) {
+    const raw = e && e.target ? e.target.value : optJamBpm.value;
+    const v = clampJamBpm(parseInt(raw, 10) || JAM_BPM_DEFAULT);
+    syncJamBpmSlidersValue(v);
+    const s = readSettingsFromUI();
+    playSettings.jamBpm = s.jamBpm;
+    saveSettings(s);
+    if (active && playSettings.sessionMode === 'jam') {
+      stopJamBeatLoop();
+      startJamBeatLoop();
+    }
   }
-  if (optJamMix) {
-    optJamMix.addEventListener('input', () => {
+
+  function onJamMixSliderInput(e) {
+    const raw = e && e.target ? e.target.value : optJamMix.value;
+    const v = Math.max(0, Math.min(1, parseFloat(raw) || 0.55));
+    syncJamMixSlidersValue(v);
+    const s = readSettingsFromUI();
+    playSettings.jamMix = s.jamMix;
+    saveSettings(s);
+  }
+
+  if (optJamBpm) optJamBpm.addEventListener('input', onJamBpmSliderInput);
+  if (optJamBpmHud) optJamBpmHud.addEventListener('input', onJamBpmSliderInput);
+  if (optJamMix) optJamMix.addEventListener('input', onJamMixSliderInput);
+  if (optJamMixHud) optJamMixHud.addEventListener('input', onJamMixSliderInput);
+
+  if (optBigKidJam) {
+    optBigKidJam.addEventListener('change', () => {
       const s = readSettingsFromUI();
-      playSettings.jamMix = s.jamMix;
+      playSettings.bigKidJam = s.bigKidJam;
       saveSettings(s);
+      if (active) {
+        if (playSettings.sessionMode === 'jam' && playSettings.bigKidJam) {
+          document.body.classList.add('big-kid-jam');
+        } else {
+          document.body.classList.remove('big-kid-jam');
+        }
+        updateJamPlayHud();
+      }
     });
   }
 
@@ -2655,9 +2828,14 @@
     attachOneShotAudioResume();
     document.getElementById('start-screen').style.display = 'none';
     document.body.classList.add('game-active');
+    if (playSettings.sessionMode === 'jam' && playSettings.bigKidJam) {
+      document.body.classList.add('big-kid-jam');
+    } else {
+      document.body.classList.remove('big-kid-jam');
+    }
     active = true;
     startJamBeatLoop();
-    document.body.style.cursor = 'none';
+    updateJamPlayHud();
 
     // Request fullscreen (may fail on some mobile browsers, that's OK)
     document.documentElement.requestFullscreen().catch(() => {});
@@ -2685,11 +2863,27 @@
 
   // Block all mouse events that could shift focus or trigger browser UI
   document.addEventListener('mouseup', (e) => {
-    if (active && !exitShowing) e.preventDefault();
+    if (!active || exitShowing) return;
+    if (
+      playSettings.sessionMode === 'jam' &&
+      playSettings.bigKidJam &&
+      isInsideJamPlayHud(e.target)
+    ) {
+      return;
+    }
+    e.preventDefault();
   }, true);
 
   document.addEventListener('dblclick', (e) => {
-    if (active) e.preventDefault();
+    if (!active) return;
+    if (
+      playSettings.sessionMode === 'jam' &&
+      playSettings.bigKidJam &&
+      isInsideJamPlayHud(e.target)
+    ) {
+      return;
+    }
+    e.preventDefault();
   }, true);
 
   // Block drag events (trackpad text selection, file drag, etc.)
