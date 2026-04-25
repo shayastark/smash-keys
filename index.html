@@ -383,6 +383,20 @@
     margin-top: 0;
   }
 
+  .jam-pattern-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35em 0.45em;
+    margin-top: 0.3em;
+    margin-bottom: 0.1em;
+  }
+
+  .jam-pattern-chips .theme-chip,
+  #jam-play-hud .theme-chip {
+    font-size: clamp(0.68rem, 1.8vw, 0.8rem);
+    padding: 0.28em 0.5em;
+  }
+
   .jam-beat-panel .jam-big-kid-row {
     margin-top: 0.65em;
   }
@@ -489,6 +503,25 @@
         </div>
         <p id="playmode-hint-text" class="setting-hint playmode-hint" aria-live="polite"></p>
         <div id="jam-beat-options" class="jam-beat-panel" hidden>
+          <span class="setting-label" id="jam-style-label">Beat style</span>
+          <div
+            class="theme-chips jam-pattern-chips"
+            id="jam-pattern-chips-menu"
+            role="radiogroup"
+            aria-labelledby="jam-style-label"
+          >
+            <button
+              type="button"
+              class="theme-chip jam-pattern-chip"
+              data-jam-pattern="0"
+              aria-checked="true"
+              role="radio"
+            >
+              Bounce
+            </button>
+            <button type="button" class="theme-chip jam-pattern-chip" data-jam-pattern="1" aria-checked="false" role="radio">Drive</button>
+            <button type="button" class="theme-chip jam-pattern-chip" data-jam-pattern="2" aria-checked="false" role="radio">Float</button>
+          </div>
           <span class="setting-label" id="jam-bpm-label">Beat tempo (BPM)</span>
           <div class="volume-row">
             <input type="range" id="opt-jam-bpm" min="70" max="280" step="1" value="140" aria-labelledby="jam-bpm-label" />
@@ -529,8 +562,27 @@
 
 <canvas id="canvas"></canvas>
 
-<div id="jam-play-hud" class="jam-play-hud" hidden role="region" aria-label="Beat tempo and strength">
+<div id="jam-play-hud" class="jam-play-hud" hidden role="region" aria-label="Beat controls">
   <div class="jam-play-hud-inner">
+    <span class="jam-play-hud-label" id="jam-hud-style-label">Beat style</span>
+    <div
+      class="theme-chips jam-pattern-chips"
+      id="jam-pattern-chips-hud"
+      role="radiogroup"
+      aria-labelledby="jam-hud-style-label"
+    >
+      <button
+        type="button"
+        class="theme-chip jam-pattern-chip"
+        data-jam-pattern="0"
+        aria-checked="true"
+        role="radio"
+      >
+        Bounce
+      </button>
+      <button type="button" class="theme-chip jam-pattern-chip" data-jam-pattern="1" aria-checked="false" role="radio">Drive</button>
+      <button type="button" class="theme-chip jam-pattern-chip" data-jam-pattern="2" aria-checked="false" role="radio">Float</button>
+    </div>
     <span class="jam-play-hud-label" id="jam-hud-bpm-label">Beat tempo (BPM)</span>
     <div class="volume-row">
       <input type="range" id="opt-jam-bpm-hud" min="70" max="280" step="1" value="140" aria-labelledby="jam-hud-bpm-label" />
@@ -658,11 +710,25 @@
     return Math.max(JAM_BPM_MIN, Math.min(JAM_BPM_MAX, v));
   }
 
+  function clampJamPattern(v) {
+    const n = typeof v === 'number' && !Number.isNaN(v) ? v : parseInt(String(v == null ? 0 : v), 10);
+    if (Number.isNaN(n)) return 0;
+    return Math.max(0, Math.min(2, n));
+  }
+
+  /** 8th-note bar: K=kick, h=soft hat, H=hat, 1/2=snare variants, .=rest */
+  const JAM_PATTERNS = [
+    'Kh1hKh2h',
+    'KhKh1h2h',
+    'K.hh1hhh'
+  ];
+
   const DEFAULT_SETTINGS = {
     theme: 'shapes',
     sessionMode: 'classic',
     jamBpm: JAM_BPM_DEFAULT,
     jamMix: 0.55,
+    jamPattern: 0,
     bigKidJam: false,
     letterLearning: false,
     enhancedPhysics: false,
@@ -681,6 +747,7 @@
       if (merged.jamBpm === undefined && merged.grooveBpm !== undefined) merged.jamBpm = merged.grooveBpm;
       if (merged.jamMix === undefined && merged.grooveMix !== undefined) merged.jamMix = merged.grooveMix;
       merged.jamBpm = clampJamBpm(merged.jamBpm ?? merged.grooveBpm);
+      merged.jamPattern = clampJamPattern(merged.jamPattern);
       return merged;
     } catch {
       return { ...DEFAULT_SETTINGS };
@@ -996,20 +1063,24 @@
     }
   }
 
+  function playJamPatternChar(ch) {
+    if (ch === 'K') playJamKick();
+    else if (ch === 'h') playJamSoftHat();
+    else if (ch === 'H') playJamHat();
+    else if (ch === '1') playJamSnare('shift');
+    else if (ch === '2') playJamSnare('enter');
+  }
+
   function scheduleJamBeat() {
     jamBeatTimeoutId = null;
     if (!active || playSettings.sessionMode !== 'jam') return;
     const bpm = clampJamBpm(typeof playSettings.jamBpm === 'number' ? playSettings.jamBpm : JAM_BPM_DEFAULT);
     const eighthMs = 30000 / bpm;
+    const patIdx = clampJamPattern(playSettings.jamPattern);
+    const pat = JAM_PATTERNS[patIdx] || JAM_PATTERNS[0];
     const step = jamBeatStep % 8;
-    if (step === 0) playJamKick();
-    else if (step === 1) playJamSoftHat();
-    else if (step === 2) playJamSnare('shift');
-    else if (step === 3) playJamSoftHat();
-    else if (step === 4) playJamKick();
-    else if (step === 5) playJamSoftHat();
-    else if (step === 6) playJamSnare('enter');
-    else playJamSoftHat();
+    const ch = pat[step] || '.';
+    if (ch !== '.') playJamPatternChar(ch);
     jamBeatStep++;
     jamBeatTimeoutId = setTimeout(scheduleJamBeat, eighthMs);
   }
@@ -2607,6 +2678,23 @@
   const optJamBpmHud = document.getElementById('opt-jam-bpm-hud');
   const optJamMixHud = document.getElementById('opt-jam-mix-hud');
   const playmodeHintText = document.getElementById('playmode-hint-text');
+  const jamPatternChips = document.querySelectorAll('.jam-pattern-chip');
+
+  function getJamPatternFromUI() {
+    const b =
+      document.querySelector('#jam-pattern-chips-menu [data-jam-pattern][aria-checked="true"]') ||
+      document.querySelector('.jam-pattern-chip[aria-checked="true"]');
+    if (!b) return 0;
+    return clampJamPattern(parseInt(b.getAttribute('data-jam-pattern'), 10));
+  }
+
+  function setJamPatternChipsToIndex(i) {
+    const idx = clampJamPattern(i);
+    jamPatternChips.forEach((btn) => {
+      const j = parseInt(btn.getAttribute('data-jam-pattern'), 10);
+      btn.setAttribute('aria-checked', j === idx ? 'true' : 'false');
+    });
+  }
 
   function isInsideJamPlayHud(target) {
     if (!jamPlayHudEl || jamPlayHudEl.hidden) return false;
@@ -2677,6 +2765,7 @@
       sessionMode,
       jamBpm,
       jamMix,
+      jamPattern: getJamPatternFromUI(),
       bigKidJam: optBigKidJam ? optBigKidJam.checked : false,
       letterLearning: optLetter.checked,
       enhancedPhysics: optPhysics.checked,
@@ -2708,6 +2797,7 @@
           : 0.55
     );
     if (optBigKidJam) optBigKidJam.checked = !!s.bigKidJam;
+    setJamPatternChipsToIndex(clampJamPattern(s.jamPattern));
     updateJamBeatPanelVisibility();
     updatePlayModeHint();
     optLetter.checked = s.letterLearning;
@@ -2791,6 +2881,21 @@
       }
     });
   }
+
+  jamPatternChips.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const i = clampJamPattern(parseInt(btn.getAttribute('data-jam-pattern'), 10));
+      setJamPatternChipsToIndex(i);
+      const s = readSettingsFromUI();
+      playSettings.jamPattern = s.jamPattern;
+      saveSettings(s);
+      if (active && playSettings.sessionMode === 'jam') {
+        jamBeatStep = 0;
+        stopJamBeatLoop();
+        startJamBeatLoop();
+      }
+    });
+  });
 
   settingsToggle.addEventListener('click', () => {
     const open = settingsPanel.hidden;
