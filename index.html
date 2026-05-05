@@ -193,6 +193,12 @@
     font-size: 0.8rem;
     z-index: 500;
     pointer-events: none;
+    transition: color 0.28s ease, font-size 0.28s ease;
+  }
+
+  #esc-hint.esc-hint-prominent {
+    color: rgba(255,255,255,0.78);
+    font-size: clamp(0.82rem, 2vw, 1rem);
   }
 
   #settings-wrap {
@@ -596,14 +602,14 @@
 
 <div id="exit-overlay">
   <h2>Leaving already?</h2>
-  <p>Press ESC again or click Quit to exit</p>
+  <p>Press Escape twice quickly, or tap Quit to go home</p>
   <div class="exit-buttons">
     <button id="resume-btn">Keep Smashing!</button>
     <button id="quit-btn">Quit</button>
   </div>
 </div>
 
-<div id="esc-hint">Press ESC twice to exit</div>
+<div id="esc-hint">Press Escape twice to pause</div>
 
 <div id="stats-overlay" aria-hidden="true"></div>
 
@@ -619,6 +625,36 @@
   let active = false;
   let lastEscTime = 0;
   let exitShowing = false;
+
+  /** Matches `#esc-hint` copy on desktop (mobile replaces via adaptation below). */
+  const DESKTOP_ESC_HINT = 'Press Escape twice to pause';
+  let escHintRestoreTimer = null;
+
+  function resetEscHintDesktop() {
+    const el = document.getElementById('esc-hint');
+    if (!el || isMobile) return;
+    if (escHintRestoreTimer) {
+      clearTimeout(escHintRestoreTimer);
+      escHintRestoreTimer = null;
+    }
+    el.textContent = DESKTOP_ESC_HINT;
+    el.classList.remove('esc-hint-prominent');
+  }
+
+  /** Brief prominence after first Escape so adults notice double-Escape exit; toddlers rarely hold Escape twice in-window. */
+  function showFirstEscapeHint() {
+    if (isMobile) return;
+    const el = document.getElementById('esc-hint');
+    if (!el) return;
+    if (escHintRestoreTimer) clearTimeout(escHintRestoreTimer);
+    el.textContent = 'Press Escape again to pause';
+    el.classList.add('esc-hint-prominent');
+    escHintRestoreTimer = setTimeout(() => {
+      escHintRestoreTimer = null;
+      el.textContent = DESKTOP_ESC_HINT;
+      el.classList.remove('esc-hint-prominent');
+    }, 2200);
+  }
 
   const entities = [];   // all animated objects
 
@@ -1755,8 +1791,22 @@
 
   // ─── Entity types ───────────────────────────────────────
 
-  // Floating letter
-  function spawnLetter(key, x, y) {
+  function smashDisplayForKey(key, code) {
+    if (key.length === 1) return key.toUpperCase();
+    if (/^F\d{1,2}$/.test(code)) return '✨';
+    switch (code) {
+      case 'ArrowUp': return '↑';
+      case 'ArrowDown': return '↓';
+      case 'ArrowLeft': return '←';
+      case 'ArrowRight': return '→';
+      default: break;
+    }
+    if (code === 'PageUp' || code === 'PageDown' || code === 'Home' || code === 'End') return '✨';
+    return '✨';
+  }
+
+  // Floating letter (code from KeyboardEvent for Fn / arrows / navigation labels)
+  function spawnLetter(key, x, y, code = '') {
     const size = randBetween(80, 200);
     const color = randColor();
     const vx = randBetween(-2, 2);
@@ -1765,7 +1815,7 @@
     let rot = randBetween(0, Math.PI * 2);
     let life = 1;
     const decay = randBetween(0.008, 0.015);
-    const display = key.length === 1 ? key.toUpperCase() : '?';
+    const display = smashDisplayForKey(key, code);
 
     if (!playSettings.enhancedPhysics) {
       entities.push({
@@ -2362,16 +2412,32 @@
         return;
       }
       lastEscTime = now;
+      showFirstEscapeHint();
       return;
     }
 
     lastEscTime = 0;
 
+    // Reduce accidental browser/OS shortcuts firing Smash visuals while keeping modifier chords swallowed.
+    if ((e.metaKey || e.ctrlKey) && e.key !== 'Dead') return;
+
+    if (e.repeat) {
+      if (/^F\d{1,2}$/.test(e.code)) return;
+      if (
+        e.code === 'ArrowUp' ||
+        e.code === 'ArrowDown' ||
+        e.code === 'ArrowLeft' ||
+        e.code === 'ArrowRight'
+      ) {
+        return;
+      }
+    }
+
     const x = randBetween(W * 0.1, W * 0.9);
     const y = randBetween(H * 0.15, H * 0.85);
     const th = themeDef(playTheme);
 
-    spawnLetter(e.key, x, y);
+    spawnLetter(e.key, x, y, e.code);
     spawnParticles(x, y, Math.floor(randBetween(15, 35)));
     spawnRing(x, y);
 
@@ -2580,15 +2646,19 @@
   // ─── Exit overlay ──────────────────────────────────────
   function showExit() {
     exitShowing = true;
+    resetEscHintDesktop();
     document.getElementById('exit-overlay').classList.add('visible');
   }
 
   function hideExit() {
     exitShowing = false;
+    resetEscHintDesktop();
     document.getElementById('exit-overlay').classList.remove('visible');
   }
 
   function quitApp() {
+    detachSessionUnloadGuard();
+    resetEscHintDesktop();
     active = false;
     document.body.classList.remove('game-active');
     document.body.classList.remove('big-kid-jam');
@@ -2650,6 +2720,19 @@
 
   // ─── Wake Lock (keep screen on) ───────────────────────
   let wakeLock = null;
+
+  function handleBeforeUnload(ev) {
+    ev.preventDefault();
+    ev.returnValue = '';
+  }
+
+  function attachSessionUnloadGuard() {
+    window.addEventListener('beforeunload', handleBeforeUnload);
+  }
+
+  function detachSessionUnloadGuard() {
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+  }
 
   async function requestWakeLock() {
     if ('wakeLock' in navigator) {
@@ -2939,6 +3022,7 @@
       document.body.classList.remove('big-kid-jam');
     }
     active = true;
+    attachSessionUnloadGuard();
     startJamBeatLoop();
     updateJamPlayHud();
 

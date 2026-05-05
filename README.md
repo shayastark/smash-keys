@@ -13,6 +13,10 @@ npx serve .
 
 Open the URL shown (e.g. `http://localhost:3000`).
 
+### Toddler sessions on a desktop
+
+While playing, the page stays fullscreen when it can, warns before closing or refreshing the tab, and uses double Escape to open the pause screen—but macOS or browser shortcuts (Mission Control, Spotlight, Cmd-Q, and similar) cannot be fully disabled from a web page alone. Use **standalone Safari or Chrome** (not an IDE embedded preview) so keystrokes reach the game; for a more appliance-like setup you can launch **Chrome with kiosk mode** (starts Chrome with a `--kiosk` flag pointing at your URL—look up the exact command for your OS).
+
 ## Deploy
 
 Host the project root on any static host (e.g. GitHub Pages, Vercel, Netlify). Point the site root at the folder that contains `index.html` and `sw.js`.
